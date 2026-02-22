@@ -1,0 +1,409 @@
+/* ============================================================
+   NEXUS OS — Boot Sequence & Login Screen Styles
+   ============================================================ */
+
+/* ── Boot Screen ─────────────────────────────────────────── */
+#screen-boot {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+/* ── Initial Scan Line ───────────────────────────────────── */
+#boot-scanline {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(to right,
+            transparent,
+            var(--green-mid),
+            var(--green),
+            var(--green-mid),
+            transparent);
+    box-shadow: 0 0 12px var(--green), 0 0 30px var(--green-glow);
+    top: 0;
+    transition: top 1.2s ease;
+}
+
+/* ── Logo Container ──────────────────────────────────────── */
+#boot-logo {
+    text-align: center;
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+    margin-bottom: 40px;
+}
+
+#boot-logo.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+#boot-logo .logo-main {
+    font-family: var(--font-logo);
+    font-size: clamp(20px, 5vw, 42px);
+    color: var(--green);
+    letter-spacing: 6px;
+    display: block;
+    text-shadow:
+        0 0 8px var(--green),
+        0 0 20px var(--green),
+        0 0 40px var(--green-mid),
+        0 0 80px rgba(0, 255, 65, 0.2);
+}
+
+#boot-logo .logo-reflection {
+    font-family: var(--font-logo);
+    font-size: clamp(20px, 5vw, 42px);
+    letter-spacing: 6px;
+    display: block;
+    transform: scaleY(-0.4) translateY(-2px);
+    opacity: 0.2;
+    background: linear-gradient(to bottom, var(--green-mid), transparent);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-top: -4px;
+}
+
+#boot-logo .logo-sub {
+    font-family: var(--font-code);
+    font-size: 13px;
+    color: var(--green-mid);
+    letter-spacing: 4px;
+    display: block;
+    margin-top: 12px;
+    text-transform: uppercase;
+}
+
+/* ── Progress Bar ────────────────────────────────────────── */
+#boot-progress-wrap {
+    width: min(500px, 80vw);
+    opacity: 0;
+    transition: opacity 0.4s ease;
+}
+
+#boot-progress-wrap.visible {
+    opacity: 1;
+}
+
+#boot-progress-label {
+    font-family: var(--font-code);
+    font-size: 13px;
+    color: var(--green-mid);
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+}
+
+#boot-progress-bar-track {
+    width: 100%;
+    height: 10px;
+    background: var(--green-dark);
+    border: 1px solid var(--border-dim);
+    position: relative;
+    overflow: hidden;
+}
+
+#boot-progress-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green), 0 0 16px var(--green-glow);
+    transition: width 0.1s linear;
+}
+
+/* ── Boot Messages ───────────────────────────────────────── */
+#boot-messages {
+    width: min(500px, 80vw);
+    margin-top: 20px;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    min-height: 120px;
+    overflow: hidden;
+}
+
+#boot-messages.visible {
+    opacity: 1;
+}
+
+.boot-line {
+    font-family: var(--font-code);
+    font-size: 13px;
+    color: var(--green-mid);
+    margin: 3px 0;
+    display: block;
+    animation: line-appear 0.1s ease;
+}
+
+.boot-line.ok::after {
+    content: ' [OK]';
+    color: var(--green);
+}
+
+.boot-line.sys {
+    color: var(--green);
+}
+
+.boot-line.warn {
+    color: var(--amber);
+}
+
+.boot-line.err {
+    color: var(--red-alert);
+}
+
+@keyframes line-appear {
+    from {
+        opacity: 0;
+        transform: translateX(-6px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* ── Boot Cursor ─────────────────────────────────────────── */
+#boot-cursor {
+    font-family: var(--font-code);
+    font-size: 16px;
+    color: var(--green);
+    margin-top: 10px;
+    display: inline-block;
+}
+
+/* ── ORT Badge ───────────────────────────────────────────── */
+#boot-ort-badge {
+    position: absolute;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    opacity: 0;
+    transition: opacity 0.8s ease;
+}
+
+#boot-ort-badge.visible {
+    opacity: 0.5;
+}
+
+#boot-ort-badge .badge-text {
+    font-family: var(--font-code);
+    font-size: 11px;
+    color: var(--green-dark);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    display: block;
+}
+
+/* ── Boot → Login Transition ─────────────────────────────── */
+@keyframes screenFlash {
+    0% {
+        opacity: 1;
+    }
+
+    30% {
+        opacity: 0;
+    }
+
+    60% {
+        opacity: 1;
+    }
+
+    80% {
+        opacity: 0;
+    }
+
+    100% {
+        opacity: 1;
+    }
+}
+
+.screen-flash {
+    animation: screenFlash 0.4s ease;
+}
+
+/* ============================================================
+   LOGIN SCREEN
+   ============================================================ */
+
+#screen-login {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 900;
+}
+
+/* ── Login Header ────────────────────────────────────────── */
+#login-header {
+    text-align: center;
+    margin-bottom: 32px;
+}
+
+#login-header .login-logo {
+    font-family: var(--font-logo);
+    font-size: clamp(14px, 3vw, 22px);
+    color: var(--green);
+    letter-spacing: 4px;
+    text-shadow:
+        0 0 6px var(--green),
+        0 0 16px var(--green-mid);
+    display: block;
+    margin-bottom: 8px;
+}
+
+#login-header .login-org {
+    font-family: var(--font-code);
+    font-size: 12px;
+    color: var(--green-mid);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+}
+
+/* ── Login Box ───────────────────────────────────────────── */
+#login-box {
+    width: min(400px, 88vw);
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+    box-shadow:
+        0 0 20px var(--green-glow),
+        0 0 60px rgba(0, 255, 65, 0.06),
+        inset 0 0 20px rgba(0, 255, 65, 0.04);
+    padding: 0;
+    position: relative;
+}
+
+/* Double border effect */
+#login-box::before {
+    content: '';
+    position: absolute;
+    inset: 4px;
+    border: 1px solid var(--border-dim);
+    pointer-events: none;
+}
+
+.login-box-header {
+    background: rgba(0, 255, 65, 0.07);
+    border-bottom: 1px solid var(--border-dim);
+    padding: 8px 16px;
+    font-family: var(--font-code);
+    font-size: 12px;
+    color: var(--green-mid);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    display: flex;
+    justify-content: space-between;
+}
+
+.login-box-body {
+    padding: 28px 32px;
+}
+
+.login-field {
+    margin-bottom: 20px;
+}
+
+.login-label {
+    font-family: var(--font-code);
+    font-size: 13px;
+    color: var(--green-mid);
+    display: block;
+    margin-bottom: 6px;
+    letter-spacing: 2px;
+}
+
+.login-field input {
+    font-size: 18px;
+    letter-spacing: 1px;
+}
+
+/* ── Login Status ────────────────────────────────────────── */
+#login-status {
+    text-align: center;
+    font-family: var(--font-code);
+    font-size: 13px;
+    min-height: 20px;
+    margin: 10px 0 4px;
+    letter-spacing: 1px;
+    transition: all 0.2s ease;
+}
+
+#login-status.error {
+    color: var(--red-alert);
+    text-shadow: 0 0 6px var(--red-alert);
+}
+
+#login-status.info {
+    color: var(--green-mid);
+}
+
+#login-status.ok {
+    color: var(--green);
+    text-shadow: 0 0 6px var(--green);
+}
+
+/* ── Login Button ────────────────────────────────────────── */
+#btn-login {
+    width: 100%;
+    padding: 10px;
+    font-size: 16px;
+    letter-spacing: 4px;
+    margin-top: 8px;
+}
+
+/* ── Login Footer ────────────────────────────────────────── */
+.login-footer {
+    font-family: var(--font-code);
+    font-size: 10px;
+    color: var(--green-dark);
+    text-align: center;
+    padding: 8px;
+    border-top: 1px solid var(--border-dim);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+/* ── Animated corner brackets ────────────────────────────── */
+.corner-bracket {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-color: var(--green);
+    border-style: solid;
+}
+
+.corner-bracket.tl {
+    top: -1px;
+    left: -1px;
+    border-width: 2px 0 0 2px;
+}
+
+.corner-bracket.tr {
+    top: -1px;
+    right: -1px;
+    border-width: 2px 2px 0 0;
+}
+
+.corner-bracket.bl {
+    bottom: -1px;
+    left: -1px;
+    border-width: 0 0 2px 2px;
+}
+
+.corner-bracket.br {
+    bottom: -1px;
+    right: -1px;
+    border-width: 0 2px 2px 0;
+}
