@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,7 +9,8 @@
 
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&family=Press+Start+2P&display=swap"
+    rel="stylesheet">
 
   <!-- Styles -->
   <link rel="stylesheet" href="css/style.css">
@@ -22,236 +24,254 @@
 
   <style>
     /* Extra: ensure smooth screen transitions */
-    #screen-login, #screen-desktop { transition: opacity 0.3s ease; }
+    #screen-login,
+    #screen-desktop {
+      transition: opacity 0.3s ease;
+    }
   </style>
 </head>
+
 <body>
 
-<!-- ══════════════════════════════════════════════════════════
+  <!-- ══════════════════════════════════════════════════════════
      SCREEN 1 — BOOT SEQUENCE
 ══════════════════════════════════════════════════════════ -->
-<div id="screen-boot">
-  <!-- Horizontal scan line that sweeps across the screen -->
-  <div id="boot-scanline"></div>
+  <div id="screen-boot">
+    <!-- Horizontal scan line that sweeps across the screen -->
+    <div id="boot-scanline"></div>
 
-  <!-- Logo -->
-  <div id="boot-logo">
-    <span class="logo-main flicker">NEXUS OS</span>
-    <span class="logo-reflection">NEXUS OS</span>
-    <span class="logo-sub">O.R.T. — CLASSIFIED SYSTEM</span>
-  </div>
-
-  <!-- Progress bar -->
-  <div id="boot-progress-wrap">
-    <div id="boot-progress-label">
-      <span>CARREGANDO NEXUS OS v7.3.1</span>
-      <span id="boot-progress-pct">0%</span>
+    <!-- Logo -->
+    <div id="boot-logo">
+      <span class="logo-main flicker">NEXUS OS</span>
+      <span class="logo-reflection">NEXUS OS</span>
+      <span class="logo-sub">O.R.T. — CLASSIFIED SYSTEM</span>
     </div>
-    <div id="boot-progress-bar-track">
-      <div id="boot-progress-bar-fill"></div>
+
+    <!-- Progress bar -->
+    <div id="boot-progress-wrap">
+      <div id="boot-progress-label">
+        <span>CARREGANDO NEXUS OS v7.3.1</span>
+        <span id="boot-progress-pct">0%</span>
+      </div>
+      <div id="boot-progress-bar-track">
+        <div id="boot-progress-bar-fill"></div>
+      </div>
+    </div>
+
+    <!-- Boot messages -->
+    <div id="boot-messages"></div>
+
+    <!-- O.R.T. badge at bottom -->
+    <div id="boot-ort-badge">
+      <span class="badge-text">ORDEM DA REALIDADE E TEMPO</span>
+      <span class="badge-text">CLEARANCE OMEGA — ACESSO RESTRITO</span>
     </div>
   </div>
 
-  <!-- Boot messages -->
-  <div id="boot-messages"></div>
 
-  <!-- O.R.T. badge at bottom -->
-  <div id="boot-ort-badge">
-    <span class="badge-text">ORDEM DA REALIDADE E TEMPO</span>
-    <span class="badge-text">CLEARANCE OMEGA — ACESSO RESTRITO</span>
-  </div>
-</div>
-
-
-<!-- ══════════════════════════════════════════════════════════
+  <!-- ══════════════════════════════════════════════════════════
      SCREEN 2 — LOGIN
 ══════════════════════════════════════════════════════════ -->
-<div id="screen-login" class="hidden">
-  <div id="login-header">
-    <span class="login-logo pulse">NEXUS OS</span>
-    <span class="login-org">O.R.T. — Ordem da Realidade e Tempo</span>
-  </div>
-
-  <div id="login-box">
-    <!-- Corner brackets decoration -->
-    <div class="corner-bracket tl"></div>
-    <div class="corner-bracket tr"></div>
-    <div class="corner-bracket bl"></div>
-    <div class="corner-bracket br"></div>
-
-    <div class="login-box-header">
-      <span>AUTENTICAÇÃO DO SISTEMA</span>
-      <span class="blink">▮</span>
+  <div id="screen-login" class="hidden">
+    <div id="login-header">
+      <span class="login-logo pulse">NEXUS OS</span>
+      <span class="login-org">O.R.T. — Ordem da Realidade e Tempo</span>
     </div>
 
-    <div class="login-box-body">
-      <div class="login-field">
-        <label class="login-label">&gt;&gt; ID DO AGENTE (EMAIL)</label>
-        <input type="text" id="login-username" autocomplete="email" placeholder="agente@ort.gov">
-      </div>
-      <div class="login-field">
-        <label class="login-label">&gt;&gt; CHAVE DE ACESSO (SENHA)</label>
-        <input type="password" id="login-password" autocomplete="current-password" placeholder="••••••••">
+    <div id="login-box">
+      <!-- Corner brackets decoration -->
+      <div class="corner-bracket tl"></div>
+      <div class="corner-bracket tr"></div>
+      <div class="corner-bracket bl"></div>
+      <div class="corner-bracket br"></div>
+
+      <div class="login-box-header">
+        <span>AUTENTICAÇÃO DO SISTEMA</span>
+        <span class="blink">▮</span>
       </div>
 
-      <div id="login-status" class="info">
-        &gt; AGUARDANDO CREDENCIAIS...
+      <div class="login-box-body">
+        <div class="login-field">
+          <label class="login-label">&gt;&gt; ID DO AGENTE (EMAIL)</label>
+          <input type="text" id="login-username" autocomplete="email" placeholder="agente@ort.gov">
+        </div>
+        <div class="login-field">
+          <label class="login-label">&gt;&gt; CHAVE DE ACESSO (SENHA)</label>
+          <input type="password" id="login-password" autocomplete="current-password" placeholder="••••••••">
+        </div>
+
+        <div id="login-status" class="info">
+          &gt; AGUARDANDO CREDENCIAIS...
+        </div>
+
+        <button class="btn" id="btn-login">[ AUTENTICAR ]</button>
       </div>
 
-      <button class="btn" id="btn-login">[ AUTENTICAR ]</button>
+      <div class="login-footer">
+        NEXUS OS v7.3.1 &nbsp;|&nbsp; COPYRIGHT 3532–3595 O.R.T. &nbsp;|&nbsp; ALL RIGHTS RESERVED
+      </div>
     </div>
 
-    <div class="login-footer">
-      NEXUS OS v7.3.1 &nbsp;|&nbsp; COPYRIGHT 3532–3595 O.R.T. &nbsp;|&nbsp; ALL RIGHTS RESERVED
+    <!-- Demo hint -->
+    <div
+      style="margin-top:24px;text-align:center;font-family:var(--font-code);font-size:11px;color:var(--green-dark);letter-spacing:2px;line-height:1.9;">
+      <span id="demo-hint"></span>
     </div>
   </div>
 
-  <!-- Demo hint -->
-  <div style="margin-top:24px;text-align:center;font-family:var(--font-code);font-size:11px;color:var(--green-dark);letter-spacing:2px;line-height:1.9;">
-    <span id="demo-hint"></span>
-  </div>
-</div>
 
-
-<!-- ══════════════════════════════════════════════════════════
+  <!-- ══════════════════════════════════════════════════════════
      SCREEN 3 — DESKTOP
 ══════════════════════════════════════════════════════════ -->
-<div id="screen-desktop" class="hidden">
+  <div id="screen-desktop" class="hidden">
 
-  <!-- Header -->
-  <div id="desktop-header" class="scan-effect">
-    <div class="header-logo-block">
-      <span class="logo-title">NEXUS OS</span>
-      <span class="logo-reflection">NEXUS OS</span>
-    </div>
-    <div style="flex:1; border-left:1px solid var(--border-dim); margin:0 16px; padding-left:16px;">
-      <span style="font-family:var(--font-code);font-size:12px;color:var(--green-mid);letter-spacing:2px;display:block;line-height:2;">
-        Nexus Industries Operating System &nbsp;|&nbsp; O.R.T. CLASSIFIED
-      </span>
-      <span style="font-family:var(--font-code);font-size:11px;color:var(--green-dark);letter-spacing:1px;display:block;">
-        Copyright 3532 – 3595 &nbsp;|&nbsp; Ordem da Realidade e Tempo
-      </span>
-    </div>
-    <div class="header-info-block">
-      <span id="header-username" style="color:var(--green);">AGENTE</span>
-      <span>CLEARANCE: <span id="header-clearance" style="color:var(--amber);">—</span></span>
-      <span>STATUS: <span style="color:var(--green);">ONLINE ▮</span></span>
-    </div>
-  </div>
-
-  <hr class="divider-bright" style="margin:0;">
-
-  <!-- Body: Icon Grid + Preview Panel -->
-  <div id="desktop-body">
-
-    <!-- App Icon Grid -->
-    <div id="icon-grid">
-      <!-- Populated by desktop.js -->
-    </div>
-
-    <!-- Preview / Notification Panel -->
-    <div id="preview-panel" class="scan-effect">
-      <div id="preview-content">
-        <!-- Populated by desktop.js after login -->
+    <!-- Header -->
+    <div id="desktop-header" class="scan-effect">
+      <div class="header-logo-block">
+        <span class="logo-title">NEXUS OS</span>
+        <span class="logo-reflection">NEXUS OS</span>
+      </div>
+      <div style="flex:1; border-left:1px solid var(--border-dim); margin:0 16px; padding-left:16px;">
+        <span
+          style="font-family:var(--font-code);font-size:12px;color:var(--green-mid);letter-spacing:2px;display:block;line-height:2;">
+          Nexus Industries Operating System &nbsp;|&nbsp; O.R.T. CLASSIFIED
+        </span>
+        <span
+          style="font-family:var(--font-code);font-size:11px;color:var(--green-dark);letter-spacing:1px;display:block;">
+          Copyright 3532 – 3595 &nbsp;|&nbsp; Ordem da Realidade e Tempo
+        </span>
+      </div>
+      <div class="header-info-block">
+        <span id="header-username" style="color:var(--green);">AGENTE</span>
+        <span>CLEARANCE: <span id="header-clearance" style="color:var(--amber);">—</span></span>
+        <span>STATUS: <span style="color:var(--green);">ONLINE ▮</span></span>
       </div>
     </div>
 
-  </div>
+    <hr class="divider-bright" style="margin:0;">
 
-  <!-- Taskbar -->
-  <div id="taskbar">
-    <button class="btn" id="btn-start">
-      <span class="start-icon">⊙</span>
-      INICIAR
-    </button>
+    <!-- Body: Icon Grid + Preview Panel -->
+    <div id="desktop-body">
 
-    <!-- Minimized app buttons -->
-    <div id="taskbar-center"></div>
+      <!-- App Icon Grid -->
+      <div id="icon-grid">
+        <!-- Populated by desktop.js -->
+      </div>
 
-    <!-- Clock + Universe Date -->
-    <div id="taskbar-clock">
-      <span id="taskbar-time" class="glow">00:00:00</span>
-      <span id="taskbar-date">??/??/????</span>
+      <!-- Preview / Notification Panel -->
+      <div id="preview-panel" class="scan-effect">
+        <div id="preview-content">
+          <!-- Populated by desktop.js after login -->
+        </div>
+      </div>
+
     </div>
-  </div>
 
-  <!-- Start Menu (hidden by default) -->
-  <div id="start-menu" class="hidden">
-    <div class="start-menu-header">NEXUS OS — MENU</div>
-    <div class="start-menu-item" data-app="gallery">   <span class="si-icon">🖼</span> Arquivo de Artes</div>
-    <div class="start-menu-item" data-app="videos">    <span class="si-icon">📹</span> Arquivo de Vídeos</div>
-    <div class="start-menu-item" data-app="missions">  <span class="si-icon">📋</span> Missões Ativas</div>
-    <div class="start-menu-item" data-app="emails">    <span class="si-icon">📬</span> E-mails O.R.T.</div>
-    <div class="start-menu-item" data-app="notepad">   <span class="si-icon">📝</span> Bloco de Notas</div>
-    <div class="start-menu-item" data-app="vault">     <span class="si-icon">🔒</span> Cofre</div>
-    <div class="start-menu-item" data-app="calendar">  <span class="si-icon">📅</span> Linha do Tempo</div>
-    <div class="start-menu-item" data-app="terminal">  <span class="si-icon">💻</span> Terminal CLI</div>
-    <div class="start-menu-sep"></div>
-    <div class="start-menu-item" data-app="admin">     <span class="si-icon">⚙</span> Painel ADM</div>
-    <div class="start-menu-sep"></div>
-    <div class="start-menu-item" id="btn-logout" style="color:var(--red-alert);">
-      <span class="si-icon">⏻</span> Encerrar Sessão
+    <!-- Taskbar -->
+    <div id="taskbar">
+      <button class="btn" id="btn-start">
+        <span class="start-icon">⊙</span>
+        INICIAR
+      </button>
+
+      <!-- Minimized app buttons -->
+      <div id="taskbar-center"></div>
+
+      <!-- Clock + Universe Date -->
+      <div id="taskbar-clock">
+        <span id="taskbar-time" class="glow">00:00:00</span>
+        <span id="taskbar-date">??/??/????</span>
+      </div>
     </div>
-  </div>
 
-</div><!-- end #screen-desktop -->
+    <!-- Start Menu (hidden by default) -->
+    <div id="start-menu" class="hidden">
+      <div class="start-menu-header">NEXUS OS — MENU</div>
+      <div class="start-menu-item" data-app="gallery"> <span class="si-icon">🖼</span> Arquivo de Artes</div>
+      <div class="start-menu-item" data-app="videos"> <span class="si-icon">📹</span> Arquivo de Vídeos</div>
+      <div class="start-menu-item" data-app="missions"> <span class="si-icon">📋</span> Missões Ativas</div>
+      <div class="start-menu-item" data-app="emails"> <span class="si-icon">📬</span> E-mails O.R.T.</div>
+      <div class="start-menu-item" data-app="notepad"> <span class="si-icon">📝</span> Bloco de Notas</div>
+      <div class="start-menu-item" data-app="vault"> <span class="si-icon">🔒</span> Cofre</div>
+      <div class="start-menu-item" data-app="calendar"> <span class="si-icon">📅</span> Linha do Tempo</div>
+      <div class="start-menu-item" data-app="terminal"> <span class="si-icon">💻</span> Terminal CLI</div>
+      <div class="start-menu-sep"></div>
+      <div class="start-menu-item" data-app="admin"> <span class="si-icon">⚙</span> Painel ADM</div>
+      <div class="start-menu-sep"></div>
+      <div class="start-menu-item" id="btn-logout" style="color:var(--red-alert);">
+        <span class="si-icon">⏻</span> Encerrar Sessão
+      </div>
+    </div><!-- end #screen-desktop -->
+
+    <div id="notification-container" class="notification-container"></div>
 
 
-<!-- ══════════════════════════════════════════════════════════
-     SCRIPTS (order matters)
+
+    <!-- ══════════════════════════════════════════════════════════
+         SCRIPTS (order matters)
 ══════════════════════════════════════════════════════════ -->
-<script src="data/universe-date.js"></script>
-<script src="js/config.js"></script>
-<script src="js/auth.js"></script>
-<script src="js/apps.js"></script>
-<script src="js/desktop.js"></script>
-<script src="js/boot.js"></script>
+    <script src="data/universe-date.js"></script>
+    <script src="js/audio.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/apps.js"></script>
+    <script src="js/desktop.js"></script>
+    <script src="js/boot.js"></script>
 
-<script>
-  /* ── Entry Point ──────────────────────────────────────────── */
-  document.addEventListener('DOMContentLoaded', async () => {
+    <script>
+      /* ── Entry Point ──────────────────────────────────────────── */
+      document.addEventListener('DOMContentLoaded', async () => {
 
-    // Show demo credentials hint if Supabase not configured
-    const isDemo = NEXUS_CONFIG.supabase.url === 'YOUR_SUPABASE_URL';
-    const hint = document.getElementById('demo-hint');
+        // Show demo credentials hint if Supabase not configured
+        const isDemo = NEXUS_CONFIG.supabase.url === 'YOUR_SUPABASE_URL';
+        const hint = document.getElementById('demo-hint');
 
-    // Check for existing session (skip boot if already logged in)
-    const existingUser = await Auth.checkExistingSession();
-    if (existingUser) {
-      document.getElementById('screen-boot').style.display = 'none';
-      document.getElementById('screen-desktop').classList.remove('hidden');
-      Desktop.init(existingUser);
-      // Update header
-      updateHeader(existingUser);
-      return;
-    }
+        // Check for existing session (skip boot if already logged in)
+        const existingUser = await Auth.checkExistingSession();
+        if (existingUser) {
+          document.getElementById('screen-boot').style.display = 'none';
+          document.getElementById('screen-desktop').classList.remove('hidden');
+          Desktop.init(existingUser);
+          // Update header
+          updateHeader(existingUser);
+          return;
+        }
 
-    // Show demo hint on login screen
-    if (hint && isDemo) {
-      hint.innerHTML = `MODO DEMO &nbsp;|&nbsp;
+        // Show demo hint on login screen
+        if (hint && isDemo) {
+          hint.innerHTML = `MODO DEMO &nbsp;|&nbsp;
         admin@ort.gov / admin123 &nbsp;|&nbsp;
         agente@ort.gov / agente123`;
-    }
+        }
 
-    // Run full boot sequence
-    Boot.runBootSequence();
-  });
+        // Run full boot sequence
+        Boot.runBootSequence();
+      });
 
-  // Expose header update for desktop.js
-  function updateHeader(profile) {
-    const uEl = document.getElementById('header-username');
-    const cEl = document.getElementById('header-clearance');
-    if (uEl) uEl.textContent = profile?.display_name || profile?.username || 'AGENTE';
-    if (cEl) cEl.textContent = (profile?.role || 'N/A').toUpperCase();
-  }
+      // Expose header update for desktop.js
+      function updateHeader(profile) {
+        const uEl = document.getElementById('header-username');
+        const cEl = document.getElementById('header-clearance');
+        if (uEl) uEl.textContent = profile?.display_name || profile?.username || 'AGENTE';
+        if (cEl) cEl.textContent = (profile?.role || 'N/A').toUpperCase();
+      }
 
-  // Patch Desktop.init to also update header
-  const _origInit = Desktop.init.bind(Desktop);
-  Desktop.init = function(profile) {
-    _origInit(profile);
-    updateHeader(profile);
-  };
-</script>
+      // Patch Desktop.init to also update header
+      const _origInit = Desktop.init.bind(Desktop);
+      Desktop.init = function (profile) {
+        _origInit(profile);
+        updateHeader(profile);
+      };
+    </script>
+
+    <!-- Lightbox Global (Briefings e Artes) — Posicionado no fim para sobreposição total -->
+    <div id="lightbox" class="hidden">
+      <img id="lightbox-img" src="" alt="">
+      <div id="lightbox-caption"></div>
+      <button class="btn" onclick="document.getElementById('lightbox').classList.add('hidden')"
+        style="margin-top:16px;">[ FECHAR ]</button>
+    </div>
 
 </body>
+
 </html>

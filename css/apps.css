@@ -337,7 +337,7 @@
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.5);
-    z-index: 500;
+    z-index: 1500;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -819,6 +819,8 @@
     box-shadow: 0 0 30px var(--green-glow);
     width: min(500px, 90vw);
     padding: 0;
+    z-index: 3100;
+    position: relative;
 }
 
 .modal-header {
@@ -904,7 +906,7 @@
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.92);
-    z-index: 5000;
+    z-index: 100000;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -964,4 +966,57 @@
 .role-badge.restricted {
     border-color: var(--green-mid);
     color: var(--green-mid);
+}
+
+/* ── Notificações (Toast) ────────────────────────────────── */
+.notification-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+}
+
+.notification-toast {
+    background: var(--bg);
+    border: 1px solid var(--green);
+    box-shadow: 0 0 20px var(--green-glow);
+    padding: 16px;
+    width: 300px;
+    animation: slideInRight 0.3s ease-out;
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.notification-toast.new-email {
+    border-color: var(--amber);
+}
+
+.notification-header {
+    font-family: var(--font-logo);
+    font-size: 12px;
+    color: var(--amber);
+    margin-bottom: 8px;
+    letter-spacing: 2px;
+}
+
+.notification-body {
+    font-family: var(--font-code);
+    font-size: 14px;
+    color: var(--green-mid);
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
 }

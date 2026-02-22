@@ -22,6 +22,12 @@ const Desktop = (() => {
         bindTaskbar();
         bindStartMenu();
 
+        // Iniciar atmosfera CRT
+        NexusAudio.startAtmosphere();
+
+        // Iniciar escuta de e-mails em tempo real
+        Apps.initEmailRealtime();
+
         // Admin shortcut
         if (profile?.role === 'admin') {
             renderAdminNotification();
