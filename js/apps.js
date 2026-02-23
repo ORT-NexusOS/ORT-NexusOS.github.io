@@ -474,9 +474,16 @@ const Apps = (() => {
 
     let query = db.from('emails').select('*');
 
-    // Filtro Onda 5: Ver o que me mandaram, o que eu mandei, ou o que é global
+    // Filtro Onda 6: Ver o que me mandaram, o que eu mandei, ou o que é global
     if (db && !isAdmin) {
-      query = query.or(`recipient.eq.all,recipient_id.eq.${userId},sender_id.eq.${userId}`);
+      // Se sender_id ou recipient_id não existirem (porque o SQL não foi rodado), 
+      // o Supabase retornará erro 42703. Vamos capturar isso para não travar o app.
+      try {
+        query = query.or(`recipient.eq.all,recipient_id.eq.${userId},sender_id.eq.${userId}`);
+      } catch (e) {
+        console.warn('[LOAD EMAILS] Colunas sender_id/recipient_id ausentes. Verifique SQL.', e);
+        query = db.from('emails').select('*').eq('recipient', 'all');
+      }
     }
 
     const { data, error } = db ? await query.order('created_at', { ascending: false }) : { data: DEMO_EMAILS.map(e => ({ ...e, date: e.date.replace('${UNI_DATE}', ud) })) };
@@ -633,7 +640,7 @@ const Apps = (() => {
       const body = $('em-body').value.trim();
       if (!subject || !body) { alert('ASSUNTO e MENSAGEM obrigatórios.'); return; }
 
-      const { error } = await db.from('emails').insert({
+      const payload = {
         sender: Auth.getProfile()?.display_name || 'AGENTE',
         sender_id: Auth.getUser()?.id,
         subject,
@@ -643,7 +650,9 @@ const Apps = (() => {
         attachments,
         unread: true,
         date: ud
-      });
+      };
+
+      const { error } = await db.from('emails').insert(payload);
 
       if (!error) {
         overlay.remove();

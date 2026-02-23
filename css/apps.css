@@ -1055,8 +1055,56 @@
 
 .notification-body {
     font-family: var(--font-code);
-    font-size: 14px;
+    font-size: 15px;
+    line-height: 1.5;
     color: var(--green-mid);
+}
+
+.notification-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    width: 350px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    z-index: 2000000;
+    pointer-events: none;
+}
+
+.notification-toast {
+    background: rgba(0, 15, 0, 0.95);
+    border: 1px solid var(--green);
+    box-shadow: 0 0 20px var(--green-glow);
+    padding: 16px;
+    font-family: var(--font-code);
+    color: var(--green);
+    cursor: pointer;
+    pointer-events: auto;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.notification-toast::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    background: var(--green);
+    width: 100%;
+    animation: toastProgress 8s linear forwards;
+}
+
+.notification-header {
+    font-size: 11px;
+    color: var(--amber);
+    border-bottom: 1px solid var(--border-dim);
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
 }
 
 @keyframes slideInRight {
