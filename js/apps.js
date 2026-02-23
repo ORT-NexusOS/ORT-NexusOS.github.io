@@ -638,6 +638,7 @@ const Apps = (() => {
       const recipient_id = $('em-recipient').value;
       const subject = $('em-subject').value.trim();
       const body = $('em-body').value.trim();
+      const ud = typeof UNIVERSE_DATE !== 'undefined' ? UNIVERSE_DATE.format() : '??/??/????';
       if (!subject || !body) { alert('ASSUNTO e MENSAGEM obrigatórios.'); return; }
 
       const payload = {
@@ -982,6 +983,7 @@ const Apps = (() => {
     return `
       <div class="app-toolbar">
         <button class="btn" id="btn-admin-new-user">[ + NOVO AGENTE ]</button>
+        <button class="btn" onclick="Apps.showNotification('SISTEMA O.R.T.', 'CANAL DE COMUNICAÇÃO OPERALCIONAL.', 'new-email')">[ TESTAR ALERTA ]</button>
         <span class="app-toolbar-sep"></span>
         <span style="font-family:var(--font-code);font-size:12px;color:var(--green-mid);">PAINEL DE CONTROLE ADM — O.R.T.</span>
       </div>
