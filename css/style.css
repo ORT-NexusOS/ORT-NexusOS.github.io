@@ -197,7 +197,7 @@ body::after {
   }
 
   100% {
-    top: 95%;
+    top: 94%;
   }
 }
 
@@ -563,3 +563,4 @@ select option {
   border-top: 2px solid var(--green);
 
 }
+
