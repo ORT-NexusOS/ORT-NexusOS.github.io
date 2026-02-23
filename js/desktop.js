@@ -7,6 +7,26 @@ const Desktop = (() => {
 
     const $ = id => document.getElementById(id);
     let _activeWindows = new Set();
+
+    // Listener global para tecla ESC
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') {
+            // 1. Fechar Lightbox se aberto
+            const lb = $('lightbox');
+            if (lb && !lb.classList.contains('hidden')) {
+                lb.classList.add('hidden');
+                return;
+            }
+            // 2. Fechar janela de app mais recente (topo)
+            const overlays = Array.from(document.querySelectorAll('.app-overlay'));
+            if (overlays.length > 0) {
+                const latest = overlays[overlays.length - 1];
+                const appId = latest.id.replace('overlay-', '').replace('compose-overlay', 'emails');
+                closeApp(appId === 'emails' ? 'emails' : appId);
+                if (latest.id === 'compose-overlay') latest.remove();
+            }
+        }
+    });
     let _currentProfile = null;
     let _clockInterval = null;
 

@@ -440,11 +440,11 @@ const Apps = (() => {
     return `
       <div style="display:grid;grid-template-rows:auto 1fr;height:100%;gap:0;">
         <div class="app-toolbar" style="border-bottom:1px solid var(--border-dim);padding-bottom:12px;">
-          ${Auth.isAdmin() ? '<button class="btn" id="btn-compose-email">[ + NOVA MENSAGEM ]</button>' : ''}
+          <button class="btn" id="btn-compose-email">[ + NOVA MENSAGEM ]</button>
         </div>
         <div style="display:grid;grid-template-columns:1fr;overflow:hidden;">
-          <div id="email-list" style="overflow-y:auto;border-right:1px solid var(--border-dim);">
-            <div class="loading-state">CARREGANDO INBOX<span class="loading-dots"></span></div>
+          <div id="email-list" style="overflow-y:auto;">
+            <div class="loading-state">CARREGANDO COMUNICAÇÕES<span class="loading-dots"></span></div>
           </div>
         </div>
       </div>`;
@@ -479,15 +479,30 @@ const Apps = (() => {
         <span class="email-date">${e.date || ''}</span>
       </div>
       <div id="email-body-${e.id}" class="email-body-view hidden">
-        ${e.body}
-        ${e.attachments?.length ? `
-            <div style="margin-top:14px; border-top:1px solid var(--border-dim); padding-top:10px;">
-                <span style="font-size:11px; color:var(--green-dark);">ANEXOS RESTRITOS:</span>
-                <div style="display:flex; gap:10px; margin-top:5px;">
-                    ${e.attachments.map((url, i) => `<a href="${url}" target="_blank" class="btn" style="font-size:10px; padding:4px 8px;">[ VER ANEXO ${i + 1} ]</a>`).join('')}
-                </div>
+        <div class="email-view-container">
+            <div class="email-view-header">
+                <div class="email-meta-row"><span class="email-meta-label">DE:</span><span class="email-meta-value">${e.sender}</span></div>
+                <div class="email-meta-row"><span class="email-meta-label">DATA:</span><span class="email-meta-value">${e.date || ''}</span></div>
+                <div class="email-meta-row"><span class="email-meta-label">ASSUNTO:</span><span class="email-meta-value" style="color:var(--amber);">${e.subject}</span></div>
             </div>
-        ` : ''}
+            <div class="email-view-body">${e.body}</div>
+            
+            ${e.attachments?.length ? `
+                <div style="margin-top:20px; border-top:1px solid var(--border-dim); padding-top:10px;">
+                    <span style="font-size:11px; color:var(--green-dark);">ANEXOS DETECTADOS:</span>
+                    <div style="display:flex; gap:10px; margin-top:8px;">
+                        ${e.attachments.map((url, i) => `<a href="${url}" target="_blank" class="btn" style="font-size:10px; padding:4px 8px;">[ VER ANEXO ${i + 1} ]</a>`).join('')}
+                    </div>
+                </div>
+            ` : ''}
+
+            <div class="email-actions-bar">
+                ${(e.recipient_id === Auth.getUser()?.id) ? `
+                    <button class="btn btn-danger" onclick="Apps.deleteEmail('${e.id}')" style="font-size:11px;">[ APAGAR MENSAGEM ]</button>
+                ` : ''}
+                <button class="btn" onclick="Apps.openEmail('${e.id}')" style="font-size:11px;">[ VOLTAR ]</button>
+            </div>
+        </div>
       </div>`).join('');
   }
 
@@ -497,6 +512,16 @@ const Apps = (() => {
     document.querySelectorAll('.email-body-view').forEach(b => { if (b.id !== `email-body-${id}`) b.classList.add('hidden'); });
     body.classList.toggle('hidden');
     document.querySelector(`.email-row[onclick*="${id}"]`)?.classList.remove('unread');
+  }
+
+  async function deleteEmail(id) {
+    if (!confirm('APAGAR ESTA COMUNICAÇÃO PERMANENTEMENTE?')) return;
+    const db = Auth.db();
+    if (db) {
+      const { error } = await db.from('emails').delete().eq('id', id);
+      if (error) alert('ERRO NO PROTOCOLO DE EXCLUSÃO: ' + error.message);
+      loadEmails();
+    }
   }
 
   function composeEmail() {
@@ -675,18 +700,11 @@ const Apps = (() => {
      VAULT
   ══════════════════════════════════════════════════════════ */
   function vault() {
-    if (!Auth.isAdmin()) {
-      return `<div id="vault-locked" style="text-align:center;padding:48px 20px;">
-        <span class="vault-lock-icon">🔒</span>
-        <span class="vault-lock-text">ACESSO NEGADO — CLEARANCE INSUFICIENTE</span>
-        <p style="font-family:var(--font-code);font-size:13px;color:var(--green-dark);">
-          Esta área é restrita ao Mestre da O.R.T.<br>Contate o Administrador do sistema.
-        </p>
-      </div>`;
-    }
     return `
       <div class="app-toolbar">
-        <button class="btn" id="btn-add-vault">[ + NOVO ARQUIVO SECRETO ]</button>
+        ${Auth.isAdmin() ? '<button class="btn" id="btn-add-vault">[ + NOVO ARQUIVO SECRETO ]</button>' : ''}
+        <span class="app-toolbar-sep"></span>
+        <span style="font-family:var(--font-code);font-size:11px;color:var(--green-dark);">TERMINAL DE DADOS CRIPTOGRÁFICOS</span>
       </div>
       <div id="vault-add-form" class="hidden" style="background:var(--bg-panel);border:1px solid var(--border-dim);padding:16px;margin-bottom:16px;">
         <div style="display:grid;gap:10px;margin-bottom:12px;">
@@ -706,7 +724,6 @@ const Apps = (() => {
   ];
 
   function initVault() {
-    if (!Auth.isAdmin()) return;
     loadVault();
     $('btn-add-vault')?.addEventListener('click', () => $('vault-add-form')?.classList.toggle('hidden'));
     $('btn-cancel-vault')?.addEventListener('click', () => $('vault-add-form')?.classList.add('hidden'));
@@ -1067,11 +1084,14 @@ const Apps = (() => {
     db.channel('public:emails')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'emails' }, payload => {
         const email = payload.new;
-        const isAll = email.recipient === 'all';
+        const userId = Auth.getUser()?.id;
+
+        // Verifica se é para todos ou especificamente para o usuário logado
+        const isAll = email.recipient_id === 'all' || !email.recipient_id;
         const isForMe = email.recipient_id === userId;
 
         if (isAll || isForMe) {
-          showNotification('E-MAIL', `De: ${email.sender}<br>Assunto: ${email.subject}`);
+          showNotification('NOVA COMUNICAÇÃO', `DE: ${email.sender}<br>ASSUNTO: ${email.subject}`);
         }
       })
       .subscribe();
@@ -1079,7 +1099,7 @@ const Apps = (() => {
 
   return {
     render, init,
-    openLightbox, openEmail,
+    openLightbox, openEmail, deleteEmail,
     updateMissionStatus, deleteMission, openBriefing,
     changeUserRole, deleteUser,
     showNotification, initEmailRealtime

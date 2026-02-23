@@ -34,7 +34,7 @@ const NexusAudio = (() => {
         _humOsc.frequency.setValueAtTime(60, ctx.currentTime); // 60Hz hum
 
         const vol = (typeof NEXUS_CONFIG !== 'undefined') ? NEXUS_CONFIG.audio.masterVolume : 0.25;
-        _humGain.gain.setValueAtTime(0.05 * vol, ctx.currentTime);
+        _humGain.gain.setValueAtTime(0.15 * vol, ctx.currentTime);
 
         // 2. Ruído Branco filtrado (Static)
         const bufferSize = 2 * ctx.sampleRate;
@@ -49,7 +49,7 @@ const NexusAudio = (() => {
         _noiseNode.loop = true;
 
         const noiseGain = ctx.createGain();
-        noiseGain.gain.setValueAtTime(0.008, ctx.currentTime); // Aumentado para melhor audição
+        noiseGain.gain.setValueAtTime(0.025 * vol, ctx.currentTime); // Aumentado de 0.008 para 0.025
 
         // Filtro Passa-Baixa para deixar o ruído mais "quente" e abafado
         _lpFilter = ctx.createBiquadFilter();
