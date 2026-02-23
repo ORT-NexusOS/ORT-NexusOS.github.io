@@ -411,13 +411,16 @@ const Apps = (() => {
 
     if (!mission) return;
 
-    const lb = $('lightbox'); // Reaproveitar lightbox ou criar um novo para briefing
+    const lb = $('lightbox');
     if (!lb) return;
 
-    // Custom Briefing View
+    // Forçar para o topo do DOM e elevar z-index dinamicamente
+    document.body.appendChild(lb);
+    lb.style.zIndex = '999999';
+
     const briefingHTML = `
-            <div style="background:var(--bg); border:1px solid var(--border); padding:30px; max-width:600px; width:90%; box-shadow:0 0 40px var(--green-glow); position:relative; overflow-y:auto; max-height:80vh;">
-                <div style="font-family:var(--font-logo); font-size:18px; color:var(--green); border-bottom:1px solid var(--border-dim); padding-bottom:10px; margin-bottom:20px;">
+            <div class="briefing-container scan-effect" style="background:var(--bg); border:1px solid var(--border); padding:30px; max-width:700px; width:90%; box-shadow:0 0 50px rgba(0,255,65,0.3); position:relative; overflow-y:auto; max-height:80vh;">
+                <div style="font-family:var(--font-logo); font-size:20px; color:var(--green); border-bottom:1px solid var(--border-dim); padding-bottom:10px; margin-bottom:20px;">
                     MISSION BRIEFING: ${mission.title}
                 </div>
                 <div style="font-family:var(--font-code); font-size:15px; color:var(--green-mid); line-height:1.8; white-space:pre-wrap;">
@@ -465,8 +468,18 @@ const Apps = (() => {
     if (!list) return;
     const db = Auth.db();
     const ud = typeof UNIVERSE_DATE !== 'undefined' ? UNIVERSE_DATE.format() : '??/??/????';
-    const data = db ? (await db.from('emails').select('*').order('created_at', { ascending: false })).data || [] :
-      DEMO_EMAILS.map(e => ({ ...e, date: e.date.replace('${UNI_DATE}', ud) }));
+    const profile = Auth.getProfile();
+    const isAdmin = profile?.role === 'admin';
+    const userId = Auth.getUser()?.id;
+
+    let query = db.from('emails').select('*');
+
+    // Se não for admin, filtrar apenas e-mails públicos ou direcionados a mim
+    if (db && !isAdmin) {
+      query = query.or(`recipient.eq.all,recipient_id.eq.${userId}`);
+    }
+
+    const { data, error } = db ? await query.order('created_at', { ascending: false }) : { data: DEMO_EMAILS.map(e => ({ ...e, date: e.date.replace('${UNI_DATE}', ud) })) };
 
     if (!data.length) {
       list.innerHTML = `<div class="empty-state"><span class="empty-state-icon">📬</span>INBOX VAZIO</div>`;
@@ -497,7 +510,7 @@ const Apps = (() => {
             ` : ''}
 
             <div class="email-actions-bar">
-                ${(e.recipient_id === Auth.getUser()?.id) ? `
+                ${(isAdmin || e.recipient_id === userId) ? `
                     <button class="btn btn-danger" onclick="Apps.deleteEmail('${e.id}')" style="font-size:11px;">[ APAGAR MENSAGEM ]</button>
                 ` : ''}
                 <button class="btn" onclick="Apps.openEmail('${e.id}')" style="font-size:11px;">[ VOLTAR ]</button>
@@ -1084,13 +1097,15 @@ const Apps = (() => {
     db.channel('public:emails')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'emails' }, payload => {
         const email = payload.new;
+        const profile = Auth.getProfile();
         const userId = Auth.getUser()?.id;
+        const isAdmin = profile?.role === 'admin';
 
-        // Verifica se é para todos ou especificamente para o usuário logado
-        const isAll = email.recipient_id === 'all' || !email.recipient_id;
+        // Notificar se for público ou especificamente para mim (ou se eu for admin)
+        const isAll = email.recipient === 'all' || email.recipient_id === 'all' || !email.recipient_id;
         const isForMe = email.recipient_id === userId;
 
-        if (isAll || isForMe) {
+        if (isAll || isForMe || isAdmin) {
           showNotification('NOVA COMUNICAÇÃO', `DE: ${email.sender}<br>ASSUNTO: ${email.subject}`);
         }
       })
