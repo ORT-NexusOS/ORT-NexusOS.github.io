@@ -45,8 +45,8 @@ const Desktop = (() => {
         // Iniciar atmosfera CRT
         NexusAudio.startAtmosphere();
 
-        // Iniciar escuta de e-mails em tempo real
-        Apps.initEmailRealtime();
+        // Iniciar escuta de e-mails e chat em tempo real
+        Apps.initGlobalRealtime();
 
         // Admin shortcut
         if (profile?.role === 'admin') {
@@ -129,6 +129,8 @@ const Desktop = (() => {
         { id: 'shop', icon: '🛒', label: 'Loja\nO.R.T.', module: 'shop' },
         { id: 'map', icon: '🌌', label: 'Mapa\nGaláctico', module: 'map' },
         { id: 'notepad', icon: '📝', label: 'Bloco de\nNotas', module: 'notepad' },
+        { id: 'stats', icon: '👤', label: 'Status\nAgente', module: 'stats' },
+        { id: 'inventory', icon: '🎒', label: 'Inven-\ntário', module: 'inventory' },
         { id: 'vault', icon: '🔒', label: 'Cofre\nO.R.T.', module: 'vault' },
         { id: 'calendar', icon: '📅', label: 'Linha do\nTempo', module: 'calendar' },
         { id: 'terminal', icon: '💻', label: 'Terminal\nCLI', module: 'terminal' },

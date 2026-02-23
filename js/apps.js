@@ -16,6 +16,8 @@ const Apps = (() => {
     shop: { icon: '🛒', title: 'LOJA O.R.T.', path: 'O.R.T. > SEC > ARMORY' },
     map: { icon: '🌌', title: 'MAPA GALÁCTICO', path: 'O.R.T. > INTEL > MAP' },
     notepad: { icon: '📝', title: 'BLOCO DE NOTAS', path: 'O.R.T. > TOOLS > NOTEPAD' },
+    stats: { icon: '👤', title: 'STATUS AGENTE', path: 'O.R.T. > SEC > PROFILE' },
+    inventory: { icon: '🎒', title: 'INVENTÁRIO', path: 'O.R.T. > SEC > BACKPACK' },
     vault: { icon: '🔒', title: 'COFRE O.R.T.', path: 'O.R.T. > SEC > VAULT' },
     calendar: { icon: '📅', title: 'LINHA DO TEMPO', path: 'O.R.T. > INTEL > TIMELINE' },
     terminal: { icon: '💻', title: 'TERMINAL CLI', path: 'O.R.T. > SYS > TERMINAL' },
@@ -38,21 +40,35 @@ const Apps = (() => {
 
   /* ── Render HTML ─────────────────────────────────────────── */
   function render(appId) {
-    const renders = { gallery, videos, missions, emails, chat, shop, map, notepad, vault, calendar, terminal, admin };
-    return titlebar(appId) + `<div class="app-content" id="content-${appId}">` +
-      (renders[appId] ? renders[appId]() : '<div class="empty-state">EM DESENVOLVIMENTO</div>') +
-      '</div>';
+    try {
+      const renders = { gallery, videos, missions, emails, chat, shop, map: mapRender, notepad, vault, calendar, terminal, admin, stats: statsPage, inventory: inventoryPage };
+      return titlebar(appId) + `<div class="app-content" id="content-${appId}">` +
+        (renders[appId] ? renders[appId]() : '<div class="empty-state">EM DESENVOLVIMENTO</div>') +
+        '</div>';
+    } catch (e) {
+      console.error(`[APPS] ERRO AO RENDERIZAR ${appId}:`, e);
+      return titlebar(appId) + `<div class="empty-state">ERRO NA MATRIZ: ${e.message}</div>`;
+    }
   }
 
   /* ── Init Logic ──────────────────────────────────────────── */
   function init(appId) {
     const inits = {
       gallery: initGallery, videos: initVideos, missions: initMissions,
-      emails: initEmails, chat: initChat, shop: initShop, map: initMap,
+      emails: initEmails, chat: initChat, shop: initShop, map: mapInit,
       notepad: initNotepad, vault: initVault,
-      calendar: initCalendar, terminal: initTerminal, admin: initAdmin
+      calendar: initCalendar, terminal: initTerminal, admin: initAdmin,
+      stats: initStats, inventory: initInventory
     };
-    if (inits[appId]) setTimeout(() => inits[appId](), 50);
+    if (inits[appId]) {
+      setTimeout(() => {
+        try {
+          inits[appId]();
+        } catch (e) {
+          console.error(`[APPS] ERRO AO INICIALIZAR ${appId}:`, e);
+        }
+      }, 50);
+    }
   }
 
   /* ══════════════════════════════════════════════════════════
@@ -315,7 +331,12 @@ const Apps = (() => {
           <div class="login-field"><label class="login-label">&gt; CÓDIGO DA MISSÃO</label><input type="text" id="m-code" placeholder="M-073 — OPERAÇÃO NEXUS"></div>
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
             <div class="login-field"><label class="login-label">&gt; RECOMPENSA (CR$)</label><input type="number" id="m-reward" value="0"></div>
-            <div class="login-field"><label class="login-label">&gt; DESIGNAR PARA (ID ou 'all')</label><input type="text" id="m-assign" value="all"></div>
+            <div class="login-field">
+              <label class="login-label">&gt; DESIGNAR AGENTES</label>
+              <div id="m-assign-container" style="display:flex; flex-wrap:wrap; gap:8px; background:rgba(0,40,0,0.3); padding:8px; border:1px solid var(--border-dim); max-height:100px; overflow-y:auto;">
+                 <div class="loading-state" style="font-size:10px;">ESCANER DE AGENTES<span class="loading-dots"></span></div>
+              </div>
+            </div>
           </div>
           <div class="login-field"><label class="login-label">&gt; DESCRIÇÃO CURTA</label><input type="text" id="m-desc" placeholder="Resumo da missão..."></div>
           <div class="login-field"><label class="login-label">&gt; BRIEFING DETALHADO (LORE/INSTRUÇÕES)</label>
@@ -339,9 +360,28 @@ const Apps = (() => {
 
   function initMissions() {
     loadMissions();
-    $('btn-add-mission')?.addEventListener('click', () => $('missions-add-form')?.classList.toggle('hidden'));
+
+    $('btn-add-mission')?.addEventListener('click', async () => {
+      $('missions-add-form')?.classList.toggle('hidden');
+      if (!$('missions-add-form')?.classList.contains('hidden')) {
+        renderMissionAgentSelector();
+      }
+    });
+
     $('btn-cancel-mission')?.addEventListener('click', () => $('missions-add-form')?.classList.add('hidden'));
     $('btn-save-mission')?.addEventListener('click', saveMission);
+  }
+
+  async function renderMissionAgentSelector() {
+    const container = $('m-assign-container');
+    if (!container) return;
+    const { data } = await Auth.adminListUsers();
+
+    container.innerHTML = (data || []).map(u => `
+      <label style="display:flex; align-items:center; gap:5px; font-family:var(--font-code); font-size:11px; color:var(--green); cursor:pointer;">
+        <input type="checkbox" name="m-assign-check" value="${u.id}"> ${u.display_name || u.username}
+      </label>
+    `).join('') || '<div class="empty-state">NENHUM AGENTE ENCONTRADO</div>';
   }
 
   async function saveMission() {
@@ -349,7 +389,8 @@ const Apps = (() => {
     const desc = $('m-desc')?.value?.trim();
     const briefing = $('m-briefing')?.value?.trim();
     const reward = parseInt($('m-reward')?.value) || 0;
-    const assign = $('m-assign')?.value?.trim() || 'all';
+    const checks = document.querySelectorAll('input[name="m-assign-check"]:checked');
+    const assign = Array.from(checks).map(c => c.value).join(',') || 'all';
 
     if (!code) { showModal({ title: 'ERRO DE REGISTRO', body: 'O CÓDIGO DA MISSÃO É OBRIGATÓRIO.', type: 'alert' }); return; }
     const db = Auth.db();
@@ -1030,17 +1071,28 @@ const Apps = (() => {
   /* ══════════════════════════════════════════════════════════
      ADMIN PANEL
   ══════════════════════════════════════════════════════════ */
+  let _adminTab = 'agents';
+
   function admin() {
     if (!Auth.isAdmin()) {
       return '<div class="empty-state"><span class="empty-state-icon">⚠</span>ACESSO RESTRITO — SOMENTE ADMINISTRADORES</div>';
     }
     return `
-      <div class="app-toolbar">
-        <button class="btn" id="btn-admin-new-user">[ + NOVO AGENTE ]</button>
+      <div class="app-toolbar" style="display:flex; gap:10px;">
+        <button class="btn ${_adminTab === 'agents' ? 'active' : ''}" id="adm-tab-agents">[ AGENTES ]</button>
+        <button class="btn ${_adminTab === 'items' ? 'active' : ''}" id="adm-tab-items">[ FÁBRICA DE ITENS ]</button>
+        <button class="btn ${_adminTab === 'combat' ? 'active' : ''}" id="adm-tab-combat">[ MESTRE DE COMBATE ]</button>
         <button class="btn" onclick="Apps.showNotification('SISTEMA O.R.T.', 'CANAL DE COMUNICAÇÃO OPERALCIONAL.', 'new-email')">[ TESTAR ALERTA ]</button>
-        <span class="app-toolbar-sep"></span>
-        <span style="font-family:var(--font-code);font-size:12px;color:var(--green-mid);">PAINEL DE CONTROLE ADM — O.R.T.</span>
       </div>
+      <div id="admin-tab-content" style="padding:15px; height:calc(100% - 40px); overflow-y:auto;">
+         ${_adminTab === 'agents' ? renderAdminAgents() : ''}
+         ${_adminTab === 'items' ? renderAdminItems() : ''}
+         ${_adminTab === 'combat' ? renderAdminCombat() : ''}
+      </div>`;
+  }
+
+  function renderAdminAgents() {
+    return `
       <div id="admin-new-user-form" class="hidden" style="background:var(--bg-panel);border:1px solid var(--border-dim);padding:16px;margin-bottom:16px;">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
           <div class="login-field"><label class="login-label">&gt; EMAIL</label><input type="email" id="nu-email" placeholder="agente@ort.gov"></div>
@@ -1060,18 +1112,145 @@ const Apps = (() => {
         </div>
         <div id="admin-user-status" style="margin-top:10px;font-family:var(--font-code);font-size:13px;min-height:18px;"></div>
       </div>
+      <div style="display:flex; justify-content:space-between; margin-bottom:15px;">
+        <button class="btn" id="btn-admin-new-user">[ + NOVO AGENTE ]</button>
+      </div>
       <div style="border-bottom:1px solid var(--border);padding:6px 12px;display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;font-family:var(--font-code);font-size:11px;color:var(--green-mid);letter-spacing:1px;text-transform:uppercase;">
         <span>AGENTE</span><span>EMAIL</span><span>CLEARANCE</span><span>AÇÃO</span>
       </div>
       <div id="admin-user-list"><div class="loading-state">CARREGANDO AGENTES<span class="loading-dots"></span></div></div>`;
   }
 
+  function renderAdminItems() {
+    return `
+      <div id="admin-item-form" style="background:var(--bg-panel);border:1px solid var(--border-dim);padding:16px;margin-bottom:16px;">
+        <div class="login-label" style="margin-bottom:10px;">> REGISTRAR NOVO ARTEFATO/EQUIPAMENTO</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="login-field"><label class="login-label">NOME</label><input type="text" id="it-name"></div>
+          <div class="login-field"><label class="login-label">PREÇO (CR$)</label><input type="number" id="it-price" value="0"></div>
+          <div class="login-field"><label class="login-label">CATEGORIA</label>
+            <select id="it-cat">
+               <option value="weapon">ARMAMENTO</option>
+               <option value="armor">PROTEÇÃO</option>
+               <option value="document">DOCUMENTO / ITEM DE MISSÃO</option>
+               <option value="consumable">CONSUMÍVEL</option>
+            </select>
+          </div>
+          <div class="login-field"><label class="login-label">RARIDADE</label>
+            <select id="it-rare">
+               <option value="common">COMUM</option>
+               <option value="uncommon">INCOMUM</option>
+               <option value="rare">RARO</option>
+               <option value="legendary">LENDÁRIO</option>
+            </select>
+          </div>
+          <div class="login-field" style="grid-column: span 2;"><label class="login-label">DESCRIÇÃO</label><input type="text" id="it-desc"></div>
+          <div class="login-field" id="it-content-field" style="grid-column: span 2; display:none;"><label class="login-label">CONTEÚDO (PARA DOCUMENTOS)</label><textarea id="it-content" rows="3" style="width:100%; background:rgba(0,0,0,0.3); color:var(--green); border:1px solid var(--border-dim); font-family:var(--font-code);"></textarea></div>
+          <div style="grid-column: span 2;"><label style="color:var(--green-mid); font-size:12px;"><input type="checkbox" id="it-loot"> DISPONÍVEL COMO LOOT DE MISSÃO</label></div>
+        </div>
+        <button class="btn" id="btn-save-item" style="margin-top:10px;">[ FABRICAR ITEM ]</button>
+      </div>
+      <div class="login-label">> ITENS NO BANCO DE DADOS</div>
+      <div id="admin-items-list" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px; margin-top:10px;"></div>`;
+  }
+
+  function renderAdminCombat() {
+    return `
+      <div style="display:grid; grid-template-columns:250px 1fr; gap:20px; height:100%;">
+         <div style="border-right:1px solid var(--border-dim); padding-right:15px; display:flex; flex-direction:column; gap:10px;">
+            <div class="login-label">> SELECIONAR AGENTES EM CAMPO</div>
+            <div id="combat-agent-selector" style="display:flex; flex-direction:column; gap:5px;"></div>
+         </div>
+         <div style="display:flex; flex-direction:column; gap:20px;">
+            <div id="combat-controls-panel" style="background:rgba(20,0,0,0.2); border:1px solid var(--red-alert); padding:15px;">
+               <div class="login-label" style="color:var(--red-alert);">> CONTROLES DE COMBATE (ALVO: <span id="combat-target-name">NENHUM</span>)</div>
+               <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:15px;">
+                  <div>
+                     <div class="stat-label">MODIFICAR SAÚDE (HP)</div>
+                     <div style="display:flex; gap:10px; margin-top:5px;">
+                        <input type="number" id="dmg-amount" value="1" style="width:60px;">
+                        <button class="btn btn-danger" onclick="Apps.applyCombatAction('damage')">[ DANO ]</button>
+                        <button class="btn" onclick="Apps.applyCombatAction('heal')">[ CURA ]</button>
+                     </div>
+                  </div>
+                  <div>
+                     <div class="stat-label">MODIFICAR ESPÍRITO (SP)</div>
+                     <div style="display:flex; gap:10px; margin-top:5px;">
+                        <input type="number" id="sp-amount" value="1" style="width:60px;">
+                        <button class="btn btn-danger" onclick="Apps.applyCombatAction('drain')">[ DRENO ]</button>
+                        <button class="btn" onclick="Apps.applyCombatAction('restore')">[ RESTAURAR ]</button>
+                     </div>
+                  </div>
+               </div>
+            </div>
+            <div id="combat-mental-panel" style="background:rgba(80,0,150,0.1); border:1px solid #a000ff; padding:15px; margin-top:10px;">
+               <div class="login-label" style="color:#a000ff;">> ESTADO MENTAL</div>
+               <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:10px;">
+                  <div>
+                     <div class="stat-label">SANIDADE (-1 a 5)</div>
+                     <div style="display:flex; gap:10px; margin-top:5px;">
+                        <input type="number" id="san-amount" value="5" min="-1" max="5" style="width:60px;">
+                        <button class="btn" onclick="Apps.updateStat('${_selectedCombatId}', 'sanity_current', parseInt($('san-amount').value))">[ DEFINIR ]</button>
+                     </div>
+                  </div>
+                  <div>
+                     <div class="stat-label">EXPOSIÇÃO MENTAL (0-100%)</div>
+                     <div style="display:flex; gap:10px; margin-top:5px;">
+                        <input type="number" id="exp-amount" value="0" min="0" max="100" style="width:60px;">
+                        <button class="btn" onclick="Apps.updateStat('${_selectedCombatId}', 'mental_exposure', parseInt($('exp-amount').value))">[ DEFINIR % ]</button>
+                     </div>
+                  </div>
+               </div>
+            </div>
+            <div style="background:rgba(0,20,0,0.2); border:1px solid var(--green); padding:15px;">
+               <div class="login-label">> AJUSTAR ATRIBUTOS TÉCNICOS</div>
+               <div id="combat-attr-controls" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-top:10px;"></div>
+            </div>
+            <div style="background:rgba(20,20,0,0.1); border:1px solid var(--amber); padding:15px;">
+               <div class="login-label" style="color:var(--amber);">> ENTREGAR EQUIPAMENTO (LOOT DIRECT)</div>
+               <div style="display:flex; gap:10px; margin-top:10px;">
+                  <select id="combat-loot-select" style="flex:1;"></select>
+                  <button class="btn" id="btn-give-loot" style="color:var(--amber); border-color:var(--amber);">[ ENTREGAR ]</button>
+               </div>
+            </div>
+         </div>
+      </div>`;
+  }
+
   async function initAdmin() {
     if (!Auth.isAdmin()) return;
-    loadAdminUsers();
-    $('btn-admin-new-user')?.addEventListener('click', () => $('admin-new-user-form')?.classList.toggle('hidden'));
-    $('btn-cancel-new-user')?.addEventListener('click', () => $('admin-new-user-form')?.classList.add('hidden'));
-    $('btn-save-new-user')?.addEventListener('click', createNewUser);
+
+    $('adm-tab-agents')?.addEventListener('click', () => { _adminTab = 'agents'; renderAdminTabContent(); });
+    $('adm-tab-items')?.addEventListener('click', () => { _adminTab = 'items'; renderAdminTabContent(); });
+    $('adm-tab-combat')?.addEventListener('click', () => { _adminTab = 'combat'; renderAdminTabContent(); });
+
+    renderAdminTabContent();
+  }
+
+  function renderAdminTabContent() {
+    // Atualizar UI de abas (classes active)
+    document.querySelectorAll('#overlay-admin .app-toolbar .btn').forEach(b => b.classList.remove('active'));
+    $(`adm-tab-${_adminTab}`)?.classList.add('active');
+
+    const content = $('admin-tab-content');
+    if (!content) return;
+
+    if (_adminTab === 'agents') {
+      content.innerHTML = renderAdminAgents();
+      loadAdminUsers();
+      $('btn-admin-new-user')?.addEventListener('click', () => $('admin-new-user-form')?.classList.toggle('hidden'));
+      $('btn-cancel-new-user')?.addEventListener('click', () => $('admin-new-user-form')?.classList.add('hidden'));
+      $('btn-save-new-user')?.addEventListener('click', createNewUser);
+    } else if (_adminTab === 'items') {
+      content.innerHTML = renderAdminItems();
+      loadAdminItems();
+      $('it-cat')?.addEventListener('change', e => $('it-content-field').style.display = e.target.value === 'document' ? 'block' : 'none');
+      $('btn-save-item')?.addEventListener('click', createItem);
+    } else if (_adminTab === 'combat') {
+      content.innerHTML = renderAdminCombat();
+      loadCombatAgents();
+      loadLootSelect();
+    }
   }
 
   async function createNewUser() {
@@ -1134,6 +1313,152 @@ const Apps = (() => {
       }
     });
   }
+
+  /* ── Itens Admin ───────────────────────────────────────── */
+  async function createItem() {
+    const name = $('it-name').value;
+    const desc = $('it-desc').value;
+    const cat = $('it-cat').value;
+    const rare = $('it-rare').value;
+    const price = parseInt($('it-price').value) || 0;
+    const isLoot = $('it-loot').checked;
+    const content = $('it-content').value;
+
+    if (!name) return;
+
+    const db = Auth.db();
+    if (!db) return;
+
+    const { error } = await db.from('store_items').insert({
+      name, description: desc, category: cat, rarity: rare, price, is_loot: isLoot, content
+    });
+
+    if (!error) {
+      showNotification('FABRICAÇÃO CONCLUÍDA', `ITEM ${name} REGISTRADO NO BANCO.`, 'success');
+      loadAdminItems();
+    }
+  }
+
+  async function loadAdminItems() {
+    const list = $('admin-items-list');
+    if (!list) return;
+    const db = Auth.db();
+    const { data } = await db.from('store_items').select('*').order('created_at', { ascending: false });
+
+    list.innerHTML = data?.map(item => `
+      <div style="background:rgba(0,30,0,0.4); border:1px solid var(--border-dim); padding:10px; font-size:11px;">
+         <div style="color:var(--green); font-weight:bold;">${item.name}</div>
+         <div style="color:var(--amber);">CR$ ${item.price} - ${item.category}</div>
+         <button class="btn btn-danger" style="font-size:9px; margin-top:5px;" onclick="Apps.deleteItem('${item.id}')">[ APAGAR ]</button>
+      </div>
+    `).join('') || '';
+  }
+
+  async function deleteItem(id) {
+    if (!confirm('APAGAR ESTE ITEM PERMANENTEMENTE?')) return;
+    const db = Auth.db();
+    await db.from('store_items').delete().eq('id', id);
+    loadAdminItems();
+  }
+
+  /* ── Combate Admin ─────────────────────────────────────── */
+  let _selectedCombatId = null;
+
+  async function loadCombatAgents() {
+    const selector = $('combat-agent-selector');
+    if (!selector) return;
+    const result = await Auth.adminListUsers();
+    const data = result.data || [];
+
+    selector.innerHTML = data.map(u => `
+      <button class="btn" style="width:100%; justify-content:flex-start; ${u.id === _selectedCombatId ? 'background:var(--green); color:var(--bg);' : ''}" 
+        onclick="Apps.selectCombatTarget('${u.id}', '${u.display_name || u.username}')">
+        [ ${u.id === _selectedCombatId ? 'X' : ' '} ] ${u.display_name || u.username} (HP: ${u.hp_current}/${u.hp_max})
+      </button>
+    `).join('');
+  }
+
+  function selectCombatTarget(id, name) {
+    _selectedCombatId = id;
+    $('combat-target-name').textContent = name;
+    loadCombatAgents(); // Refresh selection
+    loadCombatAttrControls(id);
+  }
+
+  async function loadCombatAttrControls(userId) {
+    const db = Auth.db();
+    const { data: u } = await db.from('profiles').select('*').eq('id', userId).single();
+    const grid = $('combat-attr-controls');
+    if (!grid || !u) return;
+
+    const attrs = ['str', 'dex', 'con', 'int', 'wis', 'spi'];
+    grid.innerHTML = attrs.map(a => `
+        <div style="display:flex; flex-direction:column; gap:2px;">
+           <span class="stat-label">${a.toUpperCase()}: ${u[a] || 0}</span>
+           <div style="display:flex; gap:2px;">
+              <button class="btn" style="padding:2px 5px;" onclick="Apps.updateStat('${u.id}', '${a}', ${u[a] - 1})">-</button>
+              <button class="btn" style="padding:2px 5px;" onclick="Apps.updateStat('${u.id}', '${a}', ${u[a] + 1})">+</button>
+           </div>
+        </div>
+     `).join('');
+  }
+
+  async function applyCombatAction(type) {
+    if (!_selectedCombatId) { showModal({ title: 'ERRO', body: 'SELECIONE UM ALVO PRIMEIRO.', type: 'alert' }); return; }
+    const amount = parseInt($(type.includes('hp') || type.includes('damage') || type.includes('heal') ? 'dmg-amount' : 'sp-amount').value) || 0;
+
+    const db = Auth.db();
+    const { data: u } = await db.from('profiles').select('*').eq('id', _selectedCombatId).single();
+    if (!u) return;
+
+    let updates = {};
+    if (type === 'damage') {
+      const rd = u.rd || 0;
+      const reduction = rd + Math.floor((u.con || 0) / 2);
+      const finalDmg = Math.max(1, amount - reduction);
+      updates.hp_current = Math.max(-10, (u.hp_current || 0) - finalDmg);
+      showNotification('DANO APLICADO', `${u.display_name} sofreu ${finalDmg} de dano (Reduzido em ${reduction}).`, 'new-message');
+    } else if (type === 'heal') {
+      updates.hp_current = Math.min(u.hp_max, (u.hp_current || 0) + amount);
+    } else if (type === 'drain') {
+      updates.sp_current = Math.max(0, (u.sp_current || 0) - amount);
+    } else if (type === 'restore') {
+      updates.sp_current = Math.min(u.sp_max, (u.sp_current || 0) + amount);
+    }
+
+    await db.from('profiles').update(updates).eq('id', _selectedCombatId);
+    loadCombatAgents();
+  }
+
+  async function updateStat(id, stat, value) {
+    const db = Auth.db();
+    let updates = { [stat]: value };
+    if (stat === 'con') updates.hp_max = 15 + value;
+    if (stat === 'spi') updates.sp_max = 10 + value;
+
+    await db.from('profiles').update(updates).eq('id', id);
+    loadCombatAttrControls(id);
+    loadCombatAgents();
+  }
+
+  async function loadLootSelect() {
+    const sel = $('combat-loot-select');
+    if (!sel) return;
+    const db = Auth.db();
+    const { data } = await db.from('store_items').select('id, name').order('name');
+    sel.innerHTML = `<option value="">-- SELECIONAR ITEM --</option>` + data.map(i => `<option value="${i.id}">${i.name}</option>`).join('');
+    $('btn-give-loot')?.addEventListener('click', giveLoot);
+  }
+
+  async function giveLoot() {
+    if (!_selectedCombatId) return;
+    const itemId = $('combat-loot-select').value;
+    if (!itemId) return;
+    const db = Auth.db();
+    await db.from('inventory').insert({ user_id: _selectedCombatId, item_id: itemId });
+    showNotification('ITEM ENTREGUE', 'O ARTEFATO FOI ADICIONADO AO INVENTÁRIO DO AGENTE.', 'success');
+  }
+
 
   /* ── Public API ─────────────────────────────────────────── */
   /* ── Notificações ───────────────────────────────────────── */
@@ -1223,7 +1548,6 @@ const Apps = (() => {
 
   function initChat() {
     loadChatMessages();
-    subscribeChat();
 
     const input = $('chat-input');
     const sendBtn = $('btn-chat-send');
@@ -1298,13 +1622,18 @@ const Apps = (() => {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, async payload => {
         const { data } = await db.from('profiles').select('display_name, username, role').eq('id', payload.new.sender_id).single();
         const msg = { ...payload.new, profiles: data };
+
+        // Só tenta adicionar à UI se o contêiner existir (app aberto)
         appendChatMessage(msg);
 
-        if (payload.new.sender_id !== Auth.getUser()?.id) {
-          showNotification('CHAT O.R.T.', `${data.display_name}: ${payload.new.text}`, 'new-message');
-          Desktop.updateBadge('chat', 1, true); // Incrementar badge
+        // Notificação global (independente do app estar aberto)
+        const currentUserId = Auth.getUser()?.id;
+        if (payload.new.sender_id !== currentUserId) {
+          showNotification('CHAT O.R.T.', `${data?.display_name || 'AGENTE'}: ${payload.new.text}`, 'new-message');
+          Desktop.updateBadge('chat', 1, true);
         }
       })
+      .subscribe();
   }
 
   /* ══════════════════════════════════════════════════════════
@@ -1404,87 +1733,322 @@ const Apps = (() => {
   /* ══════════════════════════════════════════════════════════
      MAPA GALÁCTICO (BASE)
   ══════════════════════════════════════════════════════════ */
-  function map() {
+  /* ══════════════════════════════════════════════════════════
+     MAPA GALÁCTICO — Delegado para js/map.js
+  ══════════════════════════════════════════════════════════ */
+  function mapRender() {
+    return (typeof map === 'function') ? map() : '<div class="empty-state">MAPA INDISPONÍVEL</div>';
+  }
+
+  function mapInit() {
+    if (typeof initMap === 'function') initMap();
+  }
+
+  function initGlobalRealtime() {
+    initEmailRealtime();
+    subscribeChat();
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     FICHA DO AGENTE (STATS)
+  ══════════════════════════════════════════════════════════ */
+  function statsPage() {
     return `
-      <div style="display:grid; grid-template-columns:300px 1fr; height:100%; overflow:hidden;">
-        <div id="map-sidebar" style="background:rgba(0,20,0,0.8); border-right:1px solid var(--border-dim); padding:15px; overflow-y:auto;">
-          <div class="login-label" style="margin-bottom:15px;">> SETORES CONHECIDOS</div>
-          <div id="planets-list" style="display:flex; flex-direction:column; gap:8px;">
-             <div class="loading-state">ESCANER ATIVO<span class="loading-dots"></span></div>
+      <div class="stats-page-container" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); height:100%; overflow-y:auto; background:rgba(0,20,0,0.3); scrollbar-width: thin;">
+        <div style="border-right:1px solid var(--border-dim); border-bottom:1px solid var(--border-dim); padding:20px; display:flex; flex-direction:column; gap:20px;">
+          <div class="body-status-visual scan-effect" style="position:relative; overflow:hidden; border:1px solid var(--border-dim); background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; padding:10px;">
+             <svg viewBox="0 0 100 100" style="width:100%; height:100%; filter: drop-shadow(0 0 10px var(--green-glow));">
+                <defs>
+                   <clipPath id="brain-clip">
+                      <path d="M25,55 C20,50 15,40 20,25 C25,10 45,5 65,15 C85,25 90,45 85,60 C80,75 70,85 55,85 C50,85 45,80 40,80 C35,80 30,85 25,85 C20,85 18,75 25,70 C22,65 25,60 25,55 Z" />
+                   </clipPath>
+                   <radialGradient id="mist-gradient" cx="50%" cy="50%" r="50%">
+                      <stop offset="0%" stop-color="#a000ff" stop-opacity="0.8" />
+                      <stop offset="100%" stop-color="#400080" stop-opacity="0" />
+                   </radialGradient>
+                </defs>
+                <g transform="rotate(-90 50 50)">
+                   <!-- Fundo do Cérebro (Visão Lateral) -->
+                   <path d="M25,55 C20,50 15,40 20,25 C25,10 45,5 65,15 C85,25 90,45 85,60 C80,75 70,85 55,85 C50,85 45,80 40,80 C35,80 30,85 25,85 C20,85 18,75 25,70 C22,65 25,60 25,55 Z" 
+                         fill="rgba(0,255,65,0.05)" stroke="rgba(0,255,65,0.2)" stroke-width="1.5" />
+                   
+                   <!-- Enchimento Líquido de Sanidade -->
+                   <rect id="sanity-brain-fill" x="0" y="100" width="100" height="0" fill="var(--green)" opacity="0.4" clip-path="url(#brain-clip)" style="transition: all 0.5s ease;" />
+                   
+                   <!-- Névoa de Exposição Mental -->
+                   <rect id="exposure-mist-rect" x="0" y="0" width="100" height="100" fill="url(#mist-gradient)" opacity="0" clip-path="url(#brain-clip)" style="transition: opacity 1s ease;">
+                      <animate attributeName="opacity" values="0.1;0.4;0.1" dur="4s" repeatCount="indefinite" />
+                   </rect>
+
+                   <!-- Contorno Neon e Sulcos -->
+                   <path id="brain-contour" d="M25,55 C20,50 15,40 20,25 C25,10 45,5 65,15 C85,25 90,45 85,60 C80,75 70,85 55,85 C50,85 45,80 40,80 C35,80 30,85 25,85 C20,85 18,75 25,70 C22,65 25,60 25,55 Z" 
+                         fill="none" stroke="var(--green)" stroke-width="2" stroke-linecap="round">
+                      <animate id="brain-pulse-anim" attributeName="stroke-width" values="2;4;2" dur="1s" repeatCount="indefinite" begin="indefinite" />
+                   </path>
+                   
+                   <!-- Sulcos Anatômicos (Visão Lateral) -->
+                   <g stroke="var(--green-dark)" stroke-width="1" fill="none" opacity="0.4">
+                      <path d="M45,12 C55,25 50,45 40,55" /> <!-- Sulco Central -->
+                      <path d="M25,35 Q45,45 75,35" /> <!-- Sylvian Fissure -->
+                      <path d="M30,20 Q40,30 50,25" />
+                      <path d="M60,20 Q70,35 80,30" />
+                      <path d="M60,70 Q75,70 80,55" />
+                      <path d="M40,80 Q50,75 60,80" /> <!-- Cerebelo -->
+                   </g>
+                </g>
+             </svg>
+          </div>
+          <div id="stats-personal-info" style="font-family:var(--font-code); font-size:12px; line-height:1.6;">
+            <div style="color:var(--green-mid);">NOME: <span id="stat-name" style="color:var(--green);">---</span></div>
+            <div style="color:var(--green-mid);">RAÇA: <span id="stat-race" style="color:var(--green);">---</span></div>
+            <div style="color:var(--green-mid);">FUNÇÃO: <span id="stat-class" style="color:var(--green);">---</span></div>
+            <div style="color:var(--amber);">NÍVEL: <span id="stat-level" style="color:var(--amber);">---</span></div>
           </div>
         </div>
-        <div id="planet-viewer" style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px; background:radial-gradient(circle, #0a2f0a 0%, #000 70%); position:relative;">
-           <div id="planet-display-content" style="text-align:center;">
-              <div class="loading-state" style="font-size:18px;">SELECIONE UM PLANETA PARA ANÁLISE</div>
+        <div style="padding:20px; overflow-y:auto; display:flex; flex-direction:column; gap:24px;">
+           <section>
+              <div class="login-label" style="font-size:12px; margin-bottom:10px;">&gt; BIOMÉTRICA & SAÚDE</div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+                 <div>
+                    <div class="stat-label">PONTOS DE VIDA (HP)</div>
+                    <div class="rpg-bar-container"><div id="hp-bar-fill" class="rpg-bar-fill hp-fill" style="width:100%;"></div></div>
+                    <div id="hp-text" style="text-align:right; font-size:11px; color:var(--green); margin-top:4px;">-- / --</div>
+                 </div>
+                 <div>
+                    <div class="stat-label">PONTOS DE ESPÍRITO (SP)</div>
+                    <div class="rpg-bar-container"><div id="sp-bar-fill" class="rpg-bar-fill sp-fill" style="width:100%;"></div></div>
+                    <div id="sp-text" style="text-align:right; font-size:11px; color:var(--green); margin-top:4px;">-- / --</div>
+                 </div>
+              </div>
+           </section>
+           
+           <section>
+              <div class="login-label" style="font-size:12px; margin-bottom:10px;">&gt; ATRIBUTOS DE COMBATE</div>
+              <div class="stats-grid" id="attributes-grid">
+                 <div class="stat-box"><div class="stat-label">FOR</div><div class="stat-value" id="stat-str">--</div></div>
+                 <div class="stat-box"><div class="stat-label">DES</div><div class="stat-value" id="stat-dex">--</div></div>
+                 <div class="stat-box"><div class="stat-label">CON</div><div class="stat-value" id="stat-con">--</div></div>
+                 <div class="stat-box"><div class="stat-label">INT</div><div class="stat-value" id="stat-int">--</div></div>
+                 <div class="stat-box"><div class="stat-label">SAB</div><div class="stat-value" id="stat-wis">--</div></div>
+                 <div class="stat-box"><div class="stat-label">ESP</div><div class="stat-value" id="stat-spi">--</div></div>
+              </div>
+           </section>
+
+           <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+              <section>
+                 <div class="login-label" style="font-size:12px; margin-bottom:10px;">&gt; ESTADO MENTAL</div>
+                 <div class="stat-label">SANIDADE</div>
+                 <div class="rpg-bar-container"><div id="san-bar-fill" class="rpg-bar-fill san-fill" style="width:100%;"></div></div>
+                 <div class="stat-label" style="margin-top:10px;">EXPOSIÇÃO MENTAL</div>
+                 <div style="font-size:18px; color:var(--red-alert); font-family:var(--font-logo);" id="stat-exposure">0%</div>
+              </section>
+              <section>
+                 <div class="login-label" style="font-size:12px; margin-bottom:10px;">&gt; DEFESA & RESISTÊNCIA</div>
+                 <div class="stat-box" style="margin-bottom:10px;"><div class="stat-label">CONTRA-MEDIDA (DEF)</div><div class="stat-value" id="stat-def">--</div></div>
+                 <div class="stat-box"><div class="stat-label">REDUÇÃO DE DANO (RD)</div><div class="stat-value" id="stat-rd">--</div></div>
+              </section>
            </div>
         </div>
       </div>`;
   }
 
-  async function initMap() {
-    loadPlanets();
-  }
-
-  async function loadPlanets() {
-    const list = $('planets-list');
-    if (!list) return;
+  async function initStats() {
+    refreshStats();
+    // Inscrição Realtime para a ficha do próprio usuário
     const db = Auth.db();
-    if (!db) {
-      list.innerHTML = '<div class="empty-state">DADOS DE NAVEGAÇÃO INDISPONÍVEIS.</div>';
-      return;
+    if (db) {
+      db.channel('profile_updates')
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${Auth.getUser()?.id}` }, payload => {
+          refreshStats(payload.new);
+        })
+        .subscribe();
     }
-
-    const { data } = await db.from('planets').select('*').order('name');
-    list.innerHTML = '';
-
-    if (!data?.length) {
-      list.innerHTML = '<div class="empty-state">NENHUM PLANETA CATALOGADO.</div>';
-      return;
-    }
-
-    data.forEach(p => {
-      const btn = document.createElement('div');
-      btn.className = 'btn';
-      btn.style.cssText = 'display:block; text-align:left; margin-bottom:5px; font-size:12px;';
-      btn.innerHTML = `[ ${p.name.toUpperCase()} ]`;
-      btn.onclick = () => renderPlanetDetail(p);
-      list.appendChild(btn);
-    });
   }
 
-  function renderPlanetDetail(p) {
-    const content = $('planet-display-content');
-    if (!content) return;
+  async function refreshStats(newData = null) {
+    let profile;
+    if (newData) {
+      const cached = await Auth.getProfile();
+      profile = { ...cached, ...newData };
+    } else {
+      profile = await Auth.getProfile(true);
+    }
 
-    const statusColors = { safe: 'var(--green)', hostile: 'var(--red-alert)', neutral: 'var(--amber)' };
+    if (!profile) return;
 
-    content.innerHTML = `
-      <div class="scan-effect" style="margin-bottom:30px;">
-        <div style="width:250px; height:250px; border-radius:50%; background:rgba(0,255,100,0.1); border:1px solid var(--green); margin:0 auto; box-shadow:0 0 40px var(--green-glow); position:relative; overflow:hidden;">
-            <div style="position:absolute; width:100%; height:100%; background:linear-gradient(45deg, transparent 40%, rgba(0,255,100,0.15) 50%, transparent 60%); animation: scan 4s linear infinite;"></div>
-            <div style="position:absolute; width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:100px; opacity:0.3;">🪐</div>
+    const v = id => { const el = $(id); if (el) el.textContent = profile[id.replace('stat-', '').replace('str', 'str').replace('dex', 'dex').replace('con', 'con').replace('int', 'int').replace('wis', 'wis').replace('spi', 'spi')]; };
+
+    // Atualizar Campos Simples
+    if ($('stat-name')) $('stat-name').textContent = profile.display_name || profile.username;
+    if ($('stat-race')) $('stat-race').textContent = profile.race || 'Humano';
+    if ($('stat-class')) $('stat-class').textContent = profile.function_class || 'Recruta';
+    if ($('stat-level')) $('stat-level').textContent = profile.level || 1;
+
+    if ($('stat-str')) $('stat-str').textContent = profile.str || 0;
+    if ($('stat-dex')) $('stat-dex').textContent = profile.dex || 0;
+    if ($('stat-con')) $('stat-con').textContent = profile.con || 0;
+    if ($('stat-int')) $('stat-int').textContent = profile.int || 0;
+    if ($('stat-wis')) $('stat-wis').textContent = profile.wis || 0;
+    if ($('stat-spi')) $('stat-spi').textContent = profile.spi || 0;
+    if ($('stat-rd')) $('stat-rd').textContent = profile.rd || 0;
+    if ($('stat-exposure')) $('stat-exposure').textContent = (profile.mental_exposure || 0) + '%';
+
+    // Cálculos Dinâmicos
+    const defBase = (profile.con || 0) + (profile.dex || 0) + 2;
+    if ($('stat-def')) $('stat-def').textContent = defBase;
+
+    // Barras Visuais
+    const updateBar = (barId, textId, current, max) => {
+      const fill = $(barId);
+      const text = $(textId);
+      if (fill) {
+        const pct = Math.max(0, Math.min(100, (current / max) * 100));
+        fill.style.width = pct + '%';
+        if (barId === 'hp-bar-fill') {
+          const bodyFillRect = $('hp-body-fill-rect');
+          if (bodyFillRect) {
+            const h = (200 * pct) / 100;
+            bodyFillRect.setAttribute('y', 200 - h);
+            bodyFillRect.setAttribute('height', h);
+          }
+        }
+      }
+      if (text) text.textContent = `${current} / ${max}`;
+    };
+
+    updateBar('hp-bar-fill', 'hp-text', profile.hp_current || 0, profile.hp_max || 1);
+    updateBar('sp-bar-fill', 'sp-text', profile.sp_current || 0, profile.sp_max || 1);
+    updateBar('san-bar-fill', null, profile.sanity_current || 0, profile.sanity_max || 1);
+
+    // Efeito Visual do Cérebro (Sanidade & Exposição)
+    const brainFill = $('sanity-brain-fill');
+    const brainContour = $('brain-contour');
+    const pulseAnim = $('brain-pulse-anim');
+
+    if (brainFill && profile.sanity_max) {
+      const sanity = parseInt(profile.sanity_current) || 0;
+      const sanityMax = parseInt(profile.sanity_max) || 5;
+
+      // Normalização da altura (Sempre baseado na sanidade positiva para o líquido)
+      const pct = Math.max(0, Math.min(100, (sanity / sanityMax) * 100));
+      const h = (100 * pct) / 100;
+      brainFill.setAttribute('y', 100 - h);
+      brainFill.setAttribute('height', h);
+
+      // Reset de animações e cores padrão
+      if (brainContour) {
+        brainContour.setAttribute('stroke', 'var(--green)');
+        if (pulseAnim) pulseAnim.endElement();
+      }
+      brainFill.setAttribute('fill', 'var(--green)');
+
+      // Lógica de Estados Mentais Críticos
+      if (sanity <= -1) {
+        // Nível -1: Insanidade Completa (Vermelho Pulsante e Cérebro "Cheio" de Sangue)
+        brainFill.setAttribute('fill', '#ff0000');
+        brainFill.setAttribute('y', '0');
+        brainFill.setAttribute('height', '100');
+        brainFill.setAttribute('opacity', '0.6');
+        if (brainContour) {
+          brainContour.setAttribute('stroke', '#ff0000');
+          if (pulseAnim) pulseAnim.beginElement();
+        }
+      } else if (sanity === 0) {
+        // Nível 0: À Beira da Insanidade (Vermelho Estático)
+        brainFill.setAttribute('fill', '#aa0000');
+        brainFill.setAttribute('y', '0');
+        brainFill.setAttribute('height', '100');
+        brainFill.setAttribute('opacity', '0.3');
+        if (brainContour) {
+          brainContour.setAttribute('stroke', '#ff4444');
+        }
+      }
+    }
+
+    // Efeito de Névoa (Exposição Mental)
+    const mist = $('exposure-mist-rect');
+    if (mist) {
+      const exposure = profile.mental_exposure || 0;
+      // Escala 0-100% mapeada para opacidade 0.0 a 0.7
+      mist.style.opacity = (exposure / 100) * 0.7;
+    }
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     INVENTÁRIO
+  ══════════════════════════════════════════════════════════ */
+  function inventoryPage() {
+    return `
+      <div style="display:grid; grid-template-rows:auto 1fr; height:100%; gap:0;">
+        <div class="app-toolbar" style="display:flex; justify-content:space-between; align-items:center;">
+          <div style="font-family:var(--font-code); color:var(--amber);">
+            CAPACIDADE DE CARGA: <span id="inv-capacity" style="color:var(--green);">--/-- kg</span>
+          </div>
+          <button class="btn" id="btn-inv-refresh">[ ORGANIZAR MOCHILA ]</button>
         </div>
-      </div>
-      <h2 style="font-family:var(--font-logo); color:var(--green); letter-spacing:4px; margin-bottom:10px;">${p.name.toUpperCase()}</h2>
-      <div style="display:flex; justify-content:center; gap:20px; font-family:var(--font-code); font-size:12px; margin-bottom:20px;">
-        <span style="color:var(--amber);">POPULAÇÃO: ${p.population || 'DESCONHECIDA'}</span>
-        <span style="color:${statusColors[p.status] || 'var(--green)'};">STATUS: ${(p.status || 'neutral').toUpperCase()}</span>
-      </div>
-      <p style="font-family:var(--font-code); color:var(--green-mid); max-width:500px; line-height:1.6; font-size:14px; margin:0 auto;">
-         ${p.description || 'Nenhum dado adicional disponível nos arquivos da O.R.T.'}
-      </p>
-      <div style="margin-top:30px;">
-         <button class="btn" onclick="Apps.showModal({title:'COORDENADAS ENVIADAS', body:'As coordenadas de ${p.name} foram enviadas para o seu terminal de navegação.', type:'alert'})">[ TRAÇAR ROTA ]</button>
-      </div>
-    `;
-    Boot.playBeep(1200, 0.05, 0.1);
+        <div id="inventory-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:16px; padding:20px; overflow-y:auto;">
+          <div class="loading-state">ESCANER DE CARGA ATIVO<span class="loading-dots"></span></div>
+        </div>
+      </div>`;
+  }
+
+  function initInventory() {
+    loadInventory();
+    $('btn-inv-refresh')?.addEventListener('click', loadInventory);
+  }
+
+  async function loadInventory() {
+    const grid = $('inventory-grid');
+    if (!grid) return;
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    const { data: items, error } = await db.from('inventory')
+      .select('*, store_items(*)')
+      .eq('user_id', user.id);
+
+    if (error) { grid.innerHTML = `<div class="empty-state">ERRO NA MATRIZ: ${error.message}</div>`; return; }
+
+    const profile = await Auth.getProfile();
+    const maxCapacity = (profile?.str || 1) * 2;
+    if ($('inv-capacity')) $('inv-capacity').textContent = `${items.length} / ${maxCapacity} UNIDADES`;
+
+    grid.innerHTML = items?.length ? items.map(inv => {
+      const item = inv.store_items;
+      return `
+        <div class="shop-card scan-effect" style="background:rgba(0,30,0,0.4); border:1px solid ${inv.is_equipped ? 'var(--green)' : 'var(--border-dim)'}; padding:15px; display:flex; flex-direction:column; gap:10px;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div class="chip chip-sm ${item.rarity || 'common'}">${(item.rarity || 'COMUM').toUpperCase()}</div>
+            ${inv.is_equipped ? '<span style="color:var(--green); font-size:10px;">[ EQUIPADO ]</span>' : ''}
+          </div>
+          <div style="font-family:var(--font-logo); font-size:14px; color:var(--green);">${item.name}</div>
+          <div style="font-family:var(--font-code); font-size:11px; color:var(--green-mid); flex:1;">${item.description || ''}</div>
+          <div style="display:flex; flex-direction:column; gap:6px; margin-top:10px;">
+             ${item.category === 'document' ? `<button class="btn" style="font-size:10px; width:100%;" onclick="Apps.openLightbox('${item.name}', '${item.content || 'Sem conteúdo.'}')">[ LER ARQUIVO ]</button>` : ''}
+             <button class="btn" style="font-size:10px; width:100%; ${inv.is_equipped ? 'color:var(--amber); border-color:var(--amber);' : ''}" 
+               onclick="Apps.toggleEquip('${inv.id}', ${inv.is_equipped})">
+               [ ${inv.is_equipped ? 'DESEQUIPAR' : 'EQUIPAR'} ]
+             </button>
+          </div>
+        </div>
+      `;
+    }).join('') : '<div class="empty-state">INVENTÁRIO VAZIO.</div>';
+  }
+
+  async function toggleEquip(inventoryId, currentlyEquipped) {
+    const db = Auth.db();
+    if (!db) return;
+    const { error } = await db.from('inventory').update({ is_equipped: !currentlyEquipped }).eq('id', inventoryId);
+    if (!error) {
+      loadInventory();
+      refreshStats(); // Atualizar RD se houver mudanças
+    }
   }
 
   function initEmailRealtime() {
     const db = Auth.db();
     if (!db) return;
-
-    const userId = Auth.getUser()?.id;
 
     db.channel('public:emails')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'emails' }, payload => {
@@ -1501,9 +2065,8 @@ const Apps = (() => {
         const isForMe = email.recipient_id === userId;
 
         if (isAll || isForMe || isAdmin) {
-          // showNotification é a UI interna do site (toast/alerta)
           showNotification('NOVA COMUNICAÇÃO', `DE: ${email.sender}<br>ASSUNTO: ${email.subject}`, 'new-email');
-          Desktop.updateBadge('emails', 1, true); // Incrementar badge
+          Desktop.updateBadge('emails', 1, true);
         }
       })
       .subscribe();
@@ -1514,8 +2077,10 @@ const Apps = (() => {
     openLightbox, openEmail, deleteEmail,
     updateMissionStatus, deleteMission, openBriefing,
     changeUserRole, deleteUser,
-    showNotification, initEmailRealtime,
-    showModal, buyItem
+    showNotification, initGlobalRealtime,
+    showModal, buyItem,
+    initInventory, initStats, initMap,
+    deleteItem, selectCombatTarget, applyCombatAction, updateStat, toggleEquip
   };
 
 })();

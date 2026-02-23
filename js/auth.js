@@ -119,7 +119,12 @@ const Auth = (() => {
     function db() { return _supabase; }
 
     /* ── Getters ────────────────────────────────────────────── */
-    function getProfile() { return _currentProfile; }
+    async function getProfile(forceRefresh = false) {
+        if (forceRefresh && _supabase && _currentUser) {
+            _currentProfile = await fetchProfile(_currentUser.id);
+        }
+        return _currentProfile;
+    }
     function getUser() { return _currentUser; }
     function isAdmin() { return _currentProfile?.role === 'admin'; }
     function isLoggedIn() { return !!_currentProfile; }
