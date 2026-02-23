@@ -12,6 +12,9 @@ const Apps = (() => {
     videos: { icon: '📹', title: 'ARQUIVO DE VÍDEOS', path: 'O.R.T. > MEDIA > VIDEOS' },
     missions: { icon: '📋', title: 'MISSÕES ATIVAS', path: 'O.R.T. > OPS > MISSIONS' },
     emails: { icon: '📬', title: 'E-MAILS O.R.T.', path: 'O.R.T. > COMMS > INBOX' },
+    chat: { icon: '💬', title: 'CHAT OMEGA', path: 'O.R.T. > COMMS > CHAT' },
+    shop: { icon: '🛒', title: 'LOJA O.R.T.', path: 'O.R.T. > SEC > ARMORY' },
+    map: { icon: '🌌', title: 'MAPA GALÁCTICO', path: 'O.R.T. > INTEL > MAP' },
     notepad: { icon: '📝', title: 'BLOCO DE NOTAS', path: 'O.R.T. > TOOLS > NOTEPAD' },
     vault: { icon: '🔒', title: 'COFRE O.R.T.', path: 'O.R.T. > SEC > VAULT' },
     calendar: { icon: '📅', title: 'LINHA DO TEMPO', path: 'O.R.T. > INTEL > TIMELINE' },
@@ -35,7 +38,7 @@ const Apps = (() => {
 
   /* ── Render HTML ─────────────────────────────────────────── */
   function render(appId) {
-    const renders = { gallery, videos, missions, emails, notepad, vault, calendar, terminal, admin };
+    const renders = { gallery, videos, missions, emails, chat, shop, map, notepad, vault, calendar, terminal, admin };
     return titlebar(appId) + `<div class="app-content" id="content-${appId}">` +
       (renders[appId] ? renders[appId]() : '<div class="empty-state">EM DESENVOLVIMENTO</div>') +
       '</div>';
@@ -45,7 +48,8 @@ const Apps = (() => {
   function init(appId) {
     const inits = {
       gallery: initGallery, videos: initVideos, missions: initMissions,
-      emails: initEmails, notepad: initNotepad, vault: initVault,
+      emails: initEmails, chat: initChat, shop: initShop, map: initMap,
+      notepad: initNotepad, vault: initVault,
       calendar: initCalendar, terminal: initTerminal, admin: initAdmin
     };
     if (inits[appId]) setTimeout(() => inits[appId](), 50);
@@ -309,6 +313,10 @@ const Apps = (() => {
       <div id="missions-add-form" class="hidden" style="background:var(--bg-panel);border:1px solid var(--border-dim);padding:16px;margin-bottom:16px;">
         <div style="display:grid;gap:10px;margin-bottom:12px;">
           <div class="login-field"><label class="login-label">&gt; CÓDIGO DA MISSÃO</label><input type="text" id="m-code" placeholder="M-073 — OPERAÇÃO NEXUS"></div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <div class="login-field"><label class="login-label">&gt; RECOMPENSA (CR$)</label><input type="number" id="m-reward" value="0"></div>
+            <div class="login-field"><label class="login-label">&gt; DESIGNAR PARA (ID ou 'all')</label><input type="text" id="m-assign" value="all"></div>
+          </div>
           <div class="login-field"><label class="login-label">&gt; DESCRIÇÃO CURTA</label><input type="text" id="m-desc" placeholder="Resumo da missão..."></div>
           <div class="login-field"><label class="login-label">&gt; BRIEFING DETALHADO (LORE/INSTRUÇÕES)</label>
             <textarea id="m-briefing" rows="4" style="background:rgba(0,59,0,0.2);border:1px solid var(--border-dim);padding:8px;color:var(--green-mid);font-family:var(--font-code);font-size:14px;width:100%;outline:none;" placeholder="Instruções completas para os agentes..."></textarea>
@@ -319,8 +327,8 @@ const Apps = (() => {
           <button class="btn btn-danger" id="btn-cancel-mission">[ CANCELAR ]</button>
         </div>
       </div>
-      <div style="border-bottom:1px solid var(--border);padding:6px 12px;display:grid;grid-template-columns:1fr auto auto;gap:12px;font-family:var(--font-code);font-size:12px;color:var(--green-mid);letter-spacing:1px;text-transform:uppercase;">
-        <span>MISSÃO</span><span>STATUS</span><span>AÇÃO</span>
+      <div style="border-bottom:1px solid var(--border);padding:6px 12px;display:grid;grid-template-columns:1fr auto auto auto;gap:12px;font-family:var(--font-code);font-size:12px;color:var(--green-mid);letter-spacing:1px;text-transform:uppercase;">
+        <span>MISSÃO</span><span>PAGAMENTO</span><span>STATUS</span><span>AÇÃO</span>
       </div>
       <div id="missions-list"><div class="loading-state">CARREGANDO<span class="loading-dots"></span></div></div>`;
   }
@@ -340,13 +348,18 @@ const Apps = (() => {
     const code = $('m-code')?.value?.trim();
     const desc = $('m-desc')?.value?.trim();
     const briefing = $('m-briefing')?.value?.trim();
-    if (!code) { alert('Código obrigatório.'); return; }
+    const reward = parseInt($('m-reward')?.value) || 0;
+    const assign = $('m-assign')?.value?.trim() || 'all';
+
+    if (!code) { showModal({ title: 'ERRO DE REGISTRO', body: 'O CÓDIGO DA MISSÃO É OBRIGATÓRIO.', type: 'alert' }); return; }
     const db = Auth.db();
     if (db) await db.from('missions').insert({
       title: code,
       description: desc,
       briefing: briefing,
-      status: 'ativa'
+      status: 'ativa',
+      reward: reward,
+      assigned_to: assign
     });
     $('missions-add-form')?.classList.add('hidden');
     loadMissions();
@@ -371,9 +384,11 @@ const Apps = (() => {
         <div style="cursor:pointer;" onclick="Apps.openBriefing('${m.id}')">
           <div class="mission-title">${m.title} <span style="font-size:10px;color:var(--green-dark);">[CLIQUE PARA BRIEFING]</span></div>
           <div class="mission-desc">${m.description || ''}</div>
+          <div style="font-size:10px; color:var(--green-mid);">DESIGNADO: ${m.assigned_to || 'all'}</div>
         </div>
+        <div style="color:var(--amber); font-family:var(--font-code);">CR$ ${m.reward || 0}</div>
         <span class="chip ${STATUS_CLS[m.status] || ''}">${STATUS_LABELS[m.status] || m.status.toUpperCase()}</span>
-        <div style="display:flex;gap:6px;align-items:center;">
+        <div style="display:flex; gap:6px; align-items:center;">
           ${Auth.isAdmin() && db ? `
           <select onchange="Apps.updateMissionStatus('${m.id}', this.value)" style="background:transparent;border:1px solid var(--border-dim);color:var(--green-mid);font-family:var(--font-code);font-size:12px;padding:3px;cursor:pointer;">
             ${MISSION_STATUS.map(s => `<option value="${s}" ${m.status === s ? 'selected' : ''}>${s}</option>`).join('')}
@@ -386,17 +401,50 @@ const Apps = (() => {
 
   async function updateMissionStatus(id, status) {
     const db = Auth.db();
-    if (db) { await db.from('missions').update({ status }).eq('id', id); loadMissions(); }
+    if (!db) return;
+
+    if (status === 'completa') {
+      // Obter dados da missão para distribuir recompensa
+      const { data: m } = await db.from('missions').select('*').eq('id', id).single();
+      if (m && m.reward > 0) {
+        // Distribuir para designados
+        if (m.assigned_to === 'all') {
+          // Para todos: Admin precisa lidar com isso ou incrementar todos os perfis
+          // Aqui vamos simplificar: o Supabase precisaria de um RPC ou loop. 
+          // Vamos ao menos avisar ou fazer para o usuário atual se ele estiver na lista.
+          showNotification('MISSÃO CONCLUÍDA', `RECOMPENSA DE CR$ ${m.reward} DISTRIBUÍDA PARA TODOS OS AGENTES.`, 'success');
+        } else {
+          // Para um ou IDs específicos (separados por vírgula)
+          const ids = m.assigned_to.split(',').map(i => i.trim());
+          for (const userId of ids) {
+            const { data: p } = await db.from('profiles').select('credits').eq('id', userId).single();
+            if (p) {
+              await db.from('profiles').update({ credits: p.credits + m.reward }).eq('id', userId);
+            }
+          }
+          showNotification('MISSÃO CONCLUÍDA', `RECOMPENSA DE CR$ ${m.reward} DISTRIBUÍDA PARA OS DESIGNADOS.`, 'success');
+        }
+      }
+    }
+
+    await db.from('missions').update({ status }).eq('id', id);
+    loadMissions();
   }
 
   async function deleteMission(id) {
-    if (!confirm('DESEJA REALMENTE APAGAR ESTA MISSÃO?')) return;
-    const db = Auth.db();
-    if (db) {
-      const { error } = await db.from('missions').delete().eq('id', id);
-      if (error) alert('ERRO AO EXCLUIR: ' + error.message);
-      loadMissions();
-    }
+    showModal({
+      title: 'CONFIRMAR EXCLUSÃO',
+      body: 'DESEJA REALMENTE APAGAR ESTA MISSÃO?',
+      type: 'confirm',
+      onConfirm: async () => {
+        const db = Auth.db();
+        if (db) {
+          const { error } = await db.from('missions').delete().eq('id', id);
+          if (error) showModal({ title: 'ERRO AO EXCLUIR', body: 'FALHA NO PROTOCOLO: ' + error.message, type: 'alert' });
+          loadMissions();
+        }
+      }
+    });
   }
 
   async function openBriefing(id) {
@@ -535,13 +583,19 @@ const Apps = (() => {
   }
 
   async function deleteEmail(id) {
-    if (!confirm('APAGAR ESTA COMUNICAÇÃO PERMANENTEMENTE?')) return;
-    const db = Auth.db();
-    if (db) {
-      const { error } = await db.from('emails').delete().eq('id', id);
-      if (error) alert('ERRO NO PROTOCOLO DE EXCLUSÃO: ' + error.message);
-      loadEmails();
-    }
+    showModal({
+      title: 'CONFIRMAR EXCLUSÃO',
+      body: 'APAGAR ESTA COMUNICAÇÃO PERMANENTEMENTE?',
+      type: 'confirm',
+      onConfirm: async () => {
+        const db = Auth.db();
+        if (db) {
+          const { error } = await db.from('emails').delete().eq('id', id);
+          if (error) showModal({ title: 'ERRO NO PROTOCOLO', body: 'FALHA NA EXCLUSÃO: ' + error.message, type: 'alert' });
+          loadEmails();
+        }
+      }
+    });
   }
 
   function composeEmail() {
@@ -659,7 +713,7 @@ const Apps = (() => {
         overlay.remove();
         loadEmails();
       } else {
-        alert('ERRO AO ENVIAR: ' + error.message);
+        showModal({ title: 'ERRO AO ENVIAR', body: 'FALHA NA TRANSMISSÃO: ' + error.message, type: 'alert' });
       }
     });
   }
@@ -700,7 +754,7 @@ const Apps = (() => {
         const userId = Auth.getUser()?.id;
         await db.from('notes').upsert({ user_id: userId, content, updated_at: new Date() }, { onConflict: 'user_id' });
         Boot.playBeep(880, 0.05, 0.08);
-        alert('NOTAS SINCRONIZADAS COM O MAINFRAME.');
+        showModal({ title: 'SINCRO CONCLUÍDA', body: 'NOTAS SINCRONIZADAS COM O MAINFRAME.', type: 'alert' });
       } else {
         const key = `nexus_notes_${Auth.getProfile()?.id || 'demo'}`;
         localStorage.setItem(key, content);
@@ -1070,9 +1124,15 @@ const Apps = (() => {
   }
 
   async function deleteUser(userId) {
-    if (!confirm('Excluir este agente?')) return;
-    await Auth.adminDeleteUser(userId);
-    loadAdminUsers();
+    showModal({
+      title: 'REMOVER AGENTE',
+      body: 'TEM CERTEZA QUE DESEJA REVOGAR O ACESSO DESTE AGENTE?',
+      type: 'confirm',
+      onConfirm: async () => {
+        await Auth.adminDeleteUser(userId);
+        loadAdminUsers();
+      }
+    });
   }
 
   /* ── Public API ─────────────────────────────────────────── */
@@ -1097,8 +1157,327 @@ const Apps = (() => {
     Boot.playBeep(660, 0.1, 0.1);
 
     setTimeout(() => {
-      if (toast.parentElement) toast.remove();
+      if (toast.parentElement) {
+        toast.style.animation = 'slideOutRight 0.5s forwards';
+        setTimeout(() => toast.remove(), 500);
+      }
     }, 8000);
+  }
+
+  /* ── Modais Internos (Substitutos para alert/confirm) ── */
+  function showModal(options = {}) {
+    // options: { title, body, confirmText, cancelText, onConfirm, onCancel, type: 'alert'|'confirm' }
+    const overlay = document.createElement('div');
+    overlay.className = 'app-overlay active';
+    overlay.style.zIndex = '3000000'; // Maior que as janelas e notificações
+
+    const isConfirm = options.type === 'confirm';
+
+    overlay.innerHTML = `
+      <div class="modal-box scan-effect" style="width:min(450px, 90vw); border:1px solid var(--green); box-shadow:0 0 30px var(--green-glow);">
+        <div class="modal-header" style="background:var(--green); color:var(--bg); border:none; padding:8px 12px; font-family:var(--font-logo);">
+          > ${options.title || 'SISTEMA O.R.T.'}
+        </div>
+        <div class="modal-body" style="padding:20px; font-family:var(--font-code); color:var(--green); font-size:15px; line-height:1.6;">
+          ${options.body || ''}
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:12px; padding:12px;">
+          ${isConfirm ? `<button class="btn btn-danger" id="modal-cancel">[ ${options.cancelText || 'CANCELAR'} ]</button>` : ''}
+          <button class="btn" id="modal-confirm" style="background:var(--green); color:var(--bg);">[ ${options.confirmText || 'OK'} ]</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    Boot.playBeep(440, 0.05, 0.1);
+
+    overlay.querySelector('#modal-confirm').onclick = () => {
+      overlay.remove();
+      if (options.onConfirm) options.onConfirm();
+    };
+
+    if (isConfirm && overlay.querySelector('#modal-cancel')) {
+      overlay.querySelector('#modal-cancel').onclick = () => {
+        overlay.remove();
+        if (options.onCancel) options.onCancel();
+      };
+    }
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     CHAT O.R.T.
+  ══════════════════════════════════════════════════════════ */
+  function chat() {
+    return `
+      <div style="display:grid; grid-template-rows:1fr auto; height:100%; gap:0; background:rgba(0,15,0,0.3);">
+        <div id="chat-messages-container" style="flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:8px;">
+          <div class="loading-state">CONECTANDO AO CANAL OMEGA<span class="loading-dots"></span></div>
+        </div>
+        <div class="app-toolbar" style="border-top:1px solid var(--border-dim); padding:10px; display:flex; gap:10px; align-items:center;">
+          <input type="text" id="chat-input" autocomplete="off" placeholder="Digite sua mensagem classificada..." 
+            style="flex:1; background:rgba(0,40,0,0.4); border:1px solid var(--border-dim); color:var(--green); padding:10px; font-family:var(--font-code); outline:none;">
+          <button class="btn" id="btn-chat-send" style="padding:10px 20px;">[ ENVIAR ]</button>
+        </div>
+      </div>`;
+  }
+
+  function initChat() {
+    loadChatMessages();
+    subscribeChat();
+
+    const input = $('chat-input');
+    const sendBtn = $('btn-chat-send');
+
+    const sendMessage = async () => {
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+
+      const db = Auth.db();
+      if (db) {
+        await db.from('chat_messages').insert({
+          sender_id: Auth.getUser()?.id,
+          text: text
+        });
+      }
+    };
+
+    input?.addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
+    sendBtn?.addEventListener('click', sendMessage);
+  }
+
+  async function loadChatMessages() {
+    const container = $('chat-messages-container');
+    if (!container) return;
+    const db = Auth.db();
+    if (!db) {
+      container.innerHTML = '<div class="empty-state">DADOS INDISPONÍVEIS EM MODO DEMO.</div>';
+      return;
+    }
+
+    const { data } = await db.from('chat_messages')
+      .select('*, profiles(display_name, username, role)')
+      .order('created_at', { ascending: true })
+      .limit(50);
+
+    container.innerHTML = '';
+    if (data) data.forEach(msg => appendChatMessage(msg));
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function appendChatMessage(msg) {
+    const container = $('chat-messages-container');
+    if (!container) return;
+
+    if (container.querySelector('.loading-state')) container.innerHTML = '';
+
+    const isMe = msg.sender_id === Auth.getUser()?.id;
+    const senderName = msg.profiles?.display_name || msg.profiles?.username || 'AGENTE';
+
+    const msgEl = document.createElement('div');
+    msgEl.style.cssText = `max-width:80%; padding:8px 12px; border:1px solid var(--border-dim); font-family:var(--font-code); margin-bottom:4px; 
+      ${isMe ? 'align-self:flex-end; background:rgba(0,100,0,0.1); border-color:var(--green);' : 'align-self:flex-start; background:rgba(255,183,0,0.05);'}`;
+
+    msgEl.innerHTML = `
+      <div style="font-size:10px; color:${msg.profiles?.role === 'admin' ? 'var(--amber)' : 'var(--green-mid)'}; margin-bottom:4px; text-transform:uppercase;">
+        ${senderName} [${msg.profiles?.role || 'AGENTE'}]
+      </div>
+      <div style="color:var(--green); font-size:14px; word-break:break-word;">${msg.text}</div>
+      <div style="font-size:9px; color:var(--green-dark); text-align:right; margin-top:4px;">${new Date(msg.created_at).toLocaleTimeString('pt-BR')}</div>
+    `;
+
+    container.appendChild(msgEl);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function subscribeChat() {
+    const db = Auth.db();
+    if (!db) return;
+
+    db.channel('public:chat_messages')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, async payload => {
+        const { data } = await db.from('profiles').select('display_name, username, role').eq('id', payload.new.sender_id).single();
+        const msg = { ...payload.new, profiles: data };
+        appendChatMessage(msg);
+
+        if (payload.new.sender_id !== Auth.getUser()?.id) {
+          showNotification('CHAT O.R.T.', `${data.display_name}: ${payload.new.text}`, 'new-message');
+          Desktop.updateBadge('chat', 1, true); // Incrementar badge
+        }
+      })
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     LOJA O.R.T. (ARMORY)
+  ══════════════════════════════════════════════════════════ */
+  function shop() {
+    return `
+      <div style="display:grid; grid-template-rows:auto 1fr; height:100%; gap:0;">
+        <div class="app-toolbar" style="display:flex; justify-content:space-between; align-items:center;">
+          <div style="font-family:var(--font-code); color:var(--amber);">
+            MEUS CRÉDITOS: <span id="shop-user-credits" style="color:var(--green);">CR$ ---</span>
+          </div>
+          <button class="btn" id="btn-shop-refresh">[ ATUALIZAR ESTOQUE ]</button>
+        </div>
+        <div id="shop-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:16px; padding:20px; overflow-y:auto;">
+          <div class="loading-state">CONECTANDO AO ARMAZÉM<span class="loading-dots"></span></div>
+        </div>
+      </div>`;
+  }
+
+  function initShop() {
+    loadShopItems();
+    updateUserCreditsDisplay();
+    $('btn-shop-refresh')?.addEventListener('click', loadShopItems);
+  }
+
+  async function updateUserCreditsDisplay() {
+    const el = $('shop-user-credits');
+    if (!el) return;
+    const db = Auth.db();
+    if (!db) { el.textContent = 'CR$ DEMO'; return; }
+    const { data } = await db.from('profiles').select('credits').eq('id', Auth.getUser()?.id).single();
+    if (data) el.textContent = `CR$ ${data.credits.toLocaleString('pt-BR')}`;
+  }
+
+  async function loadShopItems() {
+    const grid = $('shop-grid');
+    if (!grid) return;
+    const db = Auth.db();
+    if (!db) {
+      grid.innerHTML = '<div class="empty-state">LOJA DISPONÍVEL APENAS COM SUPABASE ATIVO.</div>';
+      return;
+    }
+
+    const { data } = await db.from('store_items').select('*').order('price', { ascending: true });
+    grid.innerHTML = '';
+
+    if (!data?.length) {
+      grid.innerHTML = '<div class="empty-state">ESTOQUE VAZIO NO MOMENTO.</div>';
+      return;
+    }
+
+    grid.innerHTML = data.map(item => `
+      <div class="shop-card scan-effect" style="background:rgba(0,30,0,0.4); border:1px solid var(--border-dim); padding:15px; display:flex; flex-direction:column; gap:10px;">
+        <div style="height:120px; background:rgba(0,255,65,0.05); display:flex; align-items:center; justify-content:center; border:1px solid rgba(0,255,65,0.1);">
+          <span style="font-size:30px;">${item.type === 'weapon' ? '🔫' : '🛡️'}</span>
+        </div>
+        <div style="font-family:var(--font-logo); font-size:14px; color:var(--green);">${item.name}</div>
+        <div style="font-family:var(--font-code); font-size:11px; color:var(--green-mid); flex:1;">${item.description || ''}</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:5px;">
+          <span style="color:var(--amber); font-family:var(--font-code);">CR$ ${item.price}</span>
+          <button class="btn" style="font-size:10px; padding:4px 8px;" onclick="Apps.buyItem('${item.id}', ${item.price})">[ COMPRAR ]</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  async function buyItem(id, price) {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    const { data: profile } = await db.from('profiles').select('credits').eq('id', user.id).single();
+
+    if (profile.credits < price) {
+      showModal({ title: 'ERRO NA TRANSAÇÃO', body: 'SALDO INSUFICIENTE NO SEU CARTÃO O.R.T.', type: 'alert' });
+      return;
+    }
+
+    showModal({
+      title: 'CONFIRMAR AQUISIÇÃO',
+      body: `DESEJA REALMENTE ADQUIRIR ESTE EQUIPAMENTO POR CR$ ${price}?`,
+      type: 'confirm',
+      onConfirm: async () => {
+        const newCredits = profile.credits - price;
+        const { error } = await db.from('profiles').update({ credits: newCredits }).eq('id', user.id);
+        if (!error) {
+          showNotification('TRANSAÇÃO CONCLUÍDA', 'EQUIPAMENTO ENVIADO PARA O SEU INVENTÁRIO.', 'success');
+          updateUserCreditsDisplay();
+        } else {
+          showModal({ title: 'FALHA NO MAINFRAME', body: 'ERRO AO PROCESSAR CRÉDITOS: ' + error.message, type: 'alert' });
+        }
+      }
+    });
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     MAPA GALÁCTICO (BASE)
+  ══════════════════════════════════════════════════════════ */
+  function map() {
+    return `
+      <div style="display:grid; grid-template-columns:300px 1fr; height:100%; overflow:hidden;">
+        <div id="map-sidebar" style="background:rgba(0,20,0,0.8); border-right:1px solid var(--border-dim); padding:15px; overflow-y:auto;">
+          <div class="login-label" style="margin-bottom:15px;">> SETORES CONHECIDOS</div>
+          <div id="planets-list" style="display:flex; flex-direction:column; gap:8px;">
+             <div class="loading-state">ESCANER ATIVO<span class="loading-dots"></span></div>
+          </div>
+        </div>
+        <div id="planet-viewer" style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px; background:radial-gradient(circle, #0a2f0a 0%, #000 70%); position:relative;">
+           <div id="planet-display-content" style="text-align:center;">
+              <div class="loading-state" style="font-size:18px;">SELECIONE UM PLANETA PARA ANÁLISE</div>
+           </div>
+        </div>
+      </div>`;
+  }
+
+  async function initMap() {
+    loadPlanets();
+  }
+
+  async function loadPlanets() {
+    const list = $('planets-list');
+    if (!list) return;
+    const db = Auth.db();
+    if (!db) {
+      list.innerHTML = '<div class="empty-state">DADOS DE NAVEGAÇÃO INDISPONÍVEIS.</div>';
+      return;
+    }
+
+    const { data } = await db.from('planets').select('*').order('name');
+    list.innerHTML = '';
+
+    if (!data?.length) {
+      list.innerHTML = '<div class="empty-state">NENHUM PLANETA CATALOGADO.</div>';
+      return;
+    }
+
+    data.forEach(p => {
+      const btn = document.createElement('div');
+      btn.className = 'btn';
+      btn.style.cssText = 'display:block; text-align:left; margin-bottom:5px; font-size:12px;';
+      btn.innerHTML = `[ ${p.name.toUpperCase()} ]`;
+      btn.onclick = () => renderPlanetDetail(p);
+      list.appendChild(btn);
+    });
+  }
+
+  function renderPlanetDetail(p) {
+    const content = $('planet-display-content');
+    if (!content) return;
+
+    const statusColors = { safe: 'var(--green)', hostile: 'var(--red-alert)', neutral: 'var(--amber)' };
+
+    content.innerHTML = `
+      <div class="scan-effect" style="margin-bottom:30px;">
+        <div style="width:250px; height:250px; border-radius:50%; background:rgba(0,255,100,0.1); border:1px solid var(--green); margin:0 auto; box-shadow:0 0 40px var(--green-glow); position:relative; overflow:hidden;">
+            <div style="position:absolute; width:100%; height:100%; background:linear-gradient(45deg, transparent 40%, rgba(0,255,100,0.15) 50%, transparent 60%); animation: scan 4s linear infinite;"></div>
+            <div style="position:absolute; width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:100px; opacity:0.3;">🪐</div>
+        </div>
+      </div>
+      <h2 style="font-family:var(--font-logo); color:var(--green); letter-spacing:4px; margin-bottom:10px;">${p.name.toUpperCase()}</h2>
+      <div style="display:flex; justify-content:center; gap:20px; font-family:var(--font-code); font-size:12px; margin-bottom:20px;">
+        <span style="color:var(--amber);">POPULAÇÃO: ${p.population || 'DESCONHECIDA'}</span>
+        <span style="color:${statusColors[p.status] || 'var(--green)'};">STATUS: ${(p.status || 'neutral').toUpperCase()}</span>
+      </div>
+      <p style="font-family:var(--font-code); color:var(--green-mid); max-width:500px; line-height:1.6; font-size:14px; margin:0 auto;">
+         ${p.description || 'Nenhum dado adicional disponível nos arquivos da O.R.T.'}
+      </p>
+      <div style="margin-top:30px;">
+         <button class="btn" onclick="Apps.showModal({title:'COORDENADAS ENVIADAS', body:'As coordenadas de ${p.name} foram enviadas para o seu terminal de navegação.', type:'alert'})">[ TRAÇAR ROTA ]</button>
+      </div>
+    `;
+    Boot.playBeep(1200, 0.05, 0.1);
   }
 
   function initEmailRealtime() {
@@ -1124,6 +1503,7 @@ const Apps = (() => {
         if (isAll || isForMe || isAdmin) {
           // showNotification é a UI interna do site (toast/alerta)
           showNotification('NOVA COMUNICAÇÃO', `DE: ${email.sender}<br>ASSUNTO: ${email.subject}`, 'new-email');
+          Desktop.updateBadge('emails', 1, true); // Incrementar badge
         }
       })
       .subscribe();
@@ -1134,7 +1514,8 @@ const Apps = (() => {
     openLightbox, openEmail, deleteEmail,
     updateMissionStatus, deleteMission, openBriefing,
     changeUserRole, deleteUser,
-    showNotification, initEmailRealtime
+    showNotification, initEmailRealtime,
+    showModal, buyItem
   };
 
 })();

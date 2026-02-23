@@ -125,6 +125,9 @@ const Desktop = (() => {
         { id: 'videos', icon: '📹', label: 'Arquivo\nde Vídeos', module: 'videos' },
         { id: 'missions', icon: '📋', label: 'Missões\nAtivas', module: 'missions' },
         { id: 'emails', icon: '📬', label: 'E-mails\nO.R.T.', module: 'emails' },
+        { id: 'chat', icon: '💬', label: 'Chat\nOmega', module: 'chat' },
+        { id: 'shop', icon: '🛒', label: 'Loja\nO.R.T.', module: 'shop' },
+        { id: 'map', icon: '🌌', label: 'Mapa\nGaláctico', module: 'map' },
         { id: 'notepad', icon: '📝', label: 'Bloco de\nNotas', module: 'notepad' },
         { id: 'vault', icon: '🔒', label: 'Cofre\nO.R.T.', module: 'vault' },
         { id: 'calendar', icon: '📅', label: 'Linha do\nTempo', module: 'calendar' },
@@ -142,10 +145,12 @@ const Desktop = (() => {
 
             const div = document.createElement('div');
             div.className = 'desktop-icon';
+            div.id = `icon-${app.id}`;
             div.title = app.label.replace('\n', ' ');
             div.innerHTML = `
         <div class="icon-img">${app.icon}</div>
         <span class="icon-label">${app.label}</span>
+        <div class="icon-badge hidden">0</div>
       `;
             div.addEventListener('click', () => {
                 Boot.playBeep(880, 0.04, 0.08);
@@ -260,6 +265,22 @@ const Desktop = (() => {
         pc.appendChild(note);
     }
 
-    return { init, openApp, closeApp };
+    /* ── Badge System ────────────────────────────────────────── */
+    function updateBadge(appId, value, increment = false) {
+        const badge = $(`icon-${appId}`)?.querySelector('.icon-badge');
+        if (!badge) return;
+
+        let current = parseInt(badge.textContent) || 0;
+        let newValue = increment ? current + value : value;
+
+        badge.textContent = newValue;
+        if (newValue > 0) {
+            badge.classList.remove('hidden');
+        } else {
+            badge.classList.add('hidden');
+        }
+    }
+
+    return { init, openApp, closeApp, updateBadge };
 
 })();
