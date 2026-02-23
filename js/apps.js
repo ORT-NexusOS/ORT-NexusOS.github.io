@@ -474,9 +474,9 @@ const Apps = (() => {
 
     let query = db.from('emails').select('*');
 
-    // Se não for admin, filtrar apenas e-mails públicos ou direcionados a mim
+    // Filtro Onda 5: Ver o que me mandaram, o que eu mandei, ou o que é global
     if (db && !isAdmin) {
-      query = query.or(`recipient.eq.all,recipient_id.eq.${userId}`);
+      query = query.or(`recipient.eq.all,recipient_id.eq.${userId},sender_id.eq.${userId}`);
     }
 
     const { data, error } = db ? await query.order('created_at', { ascending: false }) : { data: DEMO_EMAILS.map(e => ({ ...e, date: e.date.replace('${UNI_DATE}', ud) })) };
@@ -510,7 +510,7 @@ const Apps = (() => {
             ` : ''}
 
             <div class="email-actions-bar">
-                ${(isAdmin || e.recipient_id === userId) ? `
+                ${(isAdmin || e.sender_id === userId) ? `
                     <button class="btn btn-danger" onclick="Apps.deleteEmail('${e.id}')" style="font-size:11px;">[ APAGAR MENSAGEM ]</button>
                 ` : ''}
                 <button class="btn" onclick="Apps.openEmail('${e.id}')" style="font-size:11px;">[ VOLTAR ]</button>
@@ -634,13 +634,15 @@ const Apps = (() => {
       if (!subject || !body) { alert('ASSUNTO e MENSAGEM obrigatórios.'); return; }
 
       const { error } = await db.from('emails').insert({
-        sender: Auth.getProfile()?.display_name || 'ADM',
+        sender: Auth.getProfile()?.display_name || 'AGENTE',
+        sender_id: Auth.getUser()?.id,
         subject,
         body,
         recipient: recipient_id === 'all' ? 'all' : 'private',
         recipient_id: recipient_id === 'all' ? null : recipient_id,
         attachments,
-        unread: true
+        unread: true,
+        date: ud
       });
 
       if (!error) {
@@ -1101,12 +1103,16 @@ const Apps = (() => {
         const userId = Auth.getUser()?.id;
         const isAdmin = profile?.role === 'admin';
 
+        // Evitar auto-notificação
+        if (email.sender_id === userId) return;
+
         // Notificar se for público ou especificamente para mim (ou se eu for admin)
         const isAll = email.recipient === 'all' || email.recipient_id === 'all' || !email.recipient_id;
         const isForMe = email.recipient_id === userId;
 
         if (isAll || isForMe || isAdmin) {
-          showNotification('NOVA COMUNICAÇÃO', `DE: ${email.sender}<br>ASSUNTO: ${email.subject}`);
+          // showNotification é a UI interna do site (toast/alerta)
+          showNotification('NOVA COMUNICAÇÃO', `DE: ${email.sender}<br>ASSUNTO: ${email.subject}`, 'new-email');
         }
       })
       .subscribe();
