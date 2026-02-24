@@ -219,6 +219,7 @@ commit;
 alter publication supabase_realtime add table chat_messages;
 alter publication supabase_realtime add table emails;
 alter publication supabase_realtime add table store_items;
+alter publication supabase_realtime add table vault_items;
 
 -- 15. TRIGGER DE NOVOS USUÁRIOS
 CREATE OR REPLACE FUNCTION public.handle_new_user()

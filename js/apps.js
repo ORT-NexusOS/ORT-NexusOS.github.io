@@ -976,6 +976,7 @@ const Apps = (() => {
         <div style="display:grid;gap:10px;margin-bottom:12px;">
           <div class="login-field"><label class="login-label">&gt; TÍTULO DO ARQUIVO</label><input type="text" id="v-title" placeholder="ARQUIVO SECRETO — OP. VOID"></div>
           <div class="login-field"><label class="login-label">&gt; CONTEÚDO CLASSIFICADO</label><textarea id="v-body" rows="4" style="background:rgba(0,59,0,0.2);border:1px solid var(--border-dim);padding:8px;color:var(--green-mid);font-family:var(--font-code);font-size:14px;width:100%;outline:none;" placeholder="Escreva aqui o conteúdo secreto..."></textarea></div>
+          <div class="login-field"><label class="login-label">&gt; PIN DE ACESSO (4 DÍGITOS)</label><input type="password" id="v-pin" maxlength="4" placeholder="••••" style="letter-spacing:8px;font-size:20px;text-align:center;"></div>
         </div>
         <div style="display:flex;gap:10px;">
           <button class="btn" id="btn-save-vault">[ ARMAZENAR ]</button>
@@ -986,8 +987,14 @@ const Apps = (() => {
   }
 
   const DEMO_VAULT = [
-    { id: 'v1', title: 'ARQUIVO OMEGA — VERDADEIRA NATUREZA DO TEMPO', content: '[DADO CLASSIFICADO]\n\nO tempo não é linear. A O.R.T. existe para manter a ilusão de que é.\n\n— Diretor Fundador', created_at: '3575-11-23' },
+    { id: 'v1', title: 'ARQUIVO OMEGA — VERDADEIRA NATUREZA DO TEMPO', content: '[DADO CLASSIFICADO]\n\nO tempo não é linear. A O.R.T. existe para manter a ilusão de que é.\n\n— Diretor Fundador', created_at: '3575-11-23', is_unlocked: false, pin_hash: null },
   ];
+
+  async function hashPin(pin) {
+    const enc = new TextEncoder();
+    const hash = await crypto.subtle.digest('SHA-256', enc.encode(pin));
+    return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
 
   function initVault() {
     loadVault();
@@ -999,10 +1006,24 @@ const Apps = (() => {
   async function saveVaultItem() {
     const title = $('v-title')?.value?.trim();
     const content = $('v-body')?.value?.trim();
-    if (!title) return;
+    const pin = $('v-pin')?.value?.trim();
+    if (!title) { showNotification('ERRO', 'Título obrigatório.', 'alert'); return; }
+    if (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
+      showNotification('ERRO DE ACESSO', 'O PIN deve ter exatamente 4 dígitos numéricos.', 'alert');
+      return;
+    }
+    const pin_hash = await hashPin(pin);
     const db = Auth.db();
-    if (db) await db.from('vault_items').insert({ title, content, created_by: Auth.getProfile()?.id });
+    if (db) {
+      const profile = await Auth.getProfile();
+      const { error } = await db.from('vault_items').insert({ title, content, pin_hash, is_unlocked: false, created_by: profile?.id });
+      if (error) { showNotification('FALHA', 'Erro ao salvar: ' + error.message, 'alert'); return; }
+    }
     $('vault-add-form')?.classList.add('hidden');
+    if ($('v-title')) $('v-title').value = '';
+    if ($('v-body')) $('v-body').value = '';
+    if ($('v-pin')) $('v-pin').value = '';
+    showNotification('ARQUIVO CRIADO', `"${title}" armazenado com criptografia ativa.`, 'success');
     loadVault();
   }
 
@@ -1015,12 +1036,218 @@ const Apps = (() => {
       list.innerHTML = `<div class="empty-state"><span class="empty-state-icon">🔒</span>COFRE VAZIO</div>`;
       return;
     }
-    list.innerHTML = data.map(v => `
-      <div class="vault-item" onclick="this.nextElementSibling.classList.toggle('hidden')">
-        <div class="vault-item-title">🔒 ${v.title}</div>
-        <div class="vault-item-meta">${(v.created_at || '').slice(0, 10)}</div>
-      </div>
-      <pre class="hidden" style="background:rgba(0,59,0,0.15);border:1px solid var(--border-dim);border-top:none;padding:14px;font-family:var(--font-code);font-size:13px;color:var(--green-mid);white-space:pre-wrap;margin-bottom:8px;">${v.content || ''}</pre>`).join('');
+    list.innerHTML = data.map(v => {
+      const isAdmin = Auth.isAdmin();
+      const deleteBtn = isAdmin ? `<button class="btn btn-danger vault-delete-btn" onclick="Apps.deleteVaultItem('${v.id}')" style="margin-top:10px;font-size:11px;padding:4px 10px;">[ APAGAR ARQUIVO ]</button>` : '';
+
+      if (v.is_unlocked) {
+        return `
+          <div class="vault-card vault-unlocked" id="vault-card-${v.id}">
+            <div class="vault-card-header">
+              <span class="vault-unlocked-icon">🔓</span>
+              <span class="vault-item-title">${v.title}</span>
+              <span class="vault-item-meta">${(v.created_at || '').slice(0, 10)}</span>
+            </div>
+            <pre class="vault-content">${v.content || ''}</pre>
+            ${deleteBtn}
+          </div>`;
+      } else {
+        return `
+          <div class="vault-card vault-locked" id="vault-card-${v.id}">
+            <div class="vault-card-header">
+              <span class="vault-item-title vault-title-locked">??? ${v.title}</span>
+              <span class="vault-item-meta">${(v.created_at || '').slice(0, 10)}</span>
+            </div>
+            <div class="vault-chains-overlay" onclick="Apps.openPadlock('${v.id}', '${v.pin_hash}')">
+              <svg class="vault-chain-svg" viewBox="0 0 200 120" xmlns="http://www.w3.org/2000/svg">
+                <!-- Corrente diagonal \ -->
+                <line x1="0" y1="0" x2="200" y2="120" stroke="var(--green-dark)" stroke-width="6" stroke-linecap="round"/>
+                <line x1="15" y1="0" x2="200" y2="105" stroke="var(--border-dim)" stroke-width="3" stroke-dasharray="10,8"/>
+                <!-- Corrente diagonal / -->
+                <line x1="200" y1="0" x2="0" y2="120" stroke="var(--green-dark)" stroke-width="6" stroke-linecap="round"/>
+                <line x1="185" y1="0" x2="0" y2="105" stroke="var(--border-dim)" stroke-width="3" stroke-dasharray="10,8"/>
+                <!-- Cadeado central -->
+                <g transform="translate(100,60)" class="vault-padlock-icon" id="padlock-icon-${v.id}">
+                  <!-- Arco do cadeado -->
+                  <path d="M-14,-18 A14,14 0 0,1 14,-18 L14,0 L-14,0 Z" fill="none" stroke="#00ff41" stroke-width="4" stroke-linecap="round"/>
+                  <!-- Corpo do cadeado -->
+                  <rect x="-18" y="0" width="36" height="28" rx="4" fill="rgba(0,30,0,0.9)" stroke="#00ff41" stroke-width="2.5"/>
+                  <!-- Buraco da fechadura -->
+                  <circle cx="0" cy="12" r="5" fill="none" stroke="#00ff41" stroke-width="2"/>
+                  <line x1="0" y1="17" x2="0" y2="24" stroke="#00ff41" stroke-width="2" stroke-linecap="round"/>
+                </g>
+              </svg>
+              <div class="vault-padlock-hint">[ CLIQUE PARA INSERIR CÓDIGO DE ACESSO ]</div>
+            </div>
+            ${isAdmin ? deleteBtn : ''}
+          </div>`;
+      }
+    }).join('');
+  }
+
+  async function deleteVaultItem(id) {
+    showModal({
+      title: 'DESTRUIÇÃO PERMANENTE',
+      body: 'Confirma a eliminação deste arquivo classificado? Esta operação é irreversível.',
+      type: 'confirm',
+      onConfirm: async () => {
+        const db = Auth.db();
+        if (db) {
+          const { error } = await db.from('vault_items').delete().eq('id', id);
+          if (!error) { showNotification('ARQUIVO DESTRUÍDO', 'Dado eliminado do Mainframe.', 'success'); loadVault(); }
+          else showNotification('FALHA', error.message, 'alert');
+        }
+      }
+    });
+  }
+
+  // ── Minigame do Cadeado ──────────────────────────────────
+  let _padlockTarget = null;
+  let _padlockHash = null;
+  let _padlockDigits = ['_', '_', '_', '_'];
+  let _padlockCursor = 0;
+
+  function openPadlock(itemId, pinHash) {
+    _padlockTarget = itemId;
+    _padlockHash = pinHash;
+    _padlockDigits = ['_', '_', '_', '_'];
+    _padlockCursor = 0;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'padlock-modal-overlay';
+    overlay.className = 'padlock-modal-overlay';
+    overlay.innerHTML = `
+      <div class="padlock-modal" id="padlock-modal">
+        <div class="padlock-modal-header">&gt; CÓDIGO DE ACESSO CRIPTOGRÁFICO</div>
+        <svg id="padlock-svg" viewBox="0 0 120 140" class="padlock-main-svg" ondblclick="Apps.submitPadlock()">
+          <!-- Arco -->
+          <path d="M30,55 A30,35 0 0,1 90,55 L90,68 L30,68 Z" fill="none" stroke="#00ff41" stroke-width="5" stroke-linecap="round" id="padlock-arc"/>
+          <!-- Corpo -->
+          <rect x="18" y="68" width="84" height="62" rx="6" fill="rgba(0,20,0,0.95)" stroke="#00ff41" stroke-width="3" id="padlock-body"/>
+          <!-- Buraco da fechadura -->
+          <circle cx="60" cy="95" r="10" fill="none" stroke="#00ff41" stroke-width="2.5"/>
+          <line x1="60" y1="105" x2="60" y2="120" stroke="#00ff41" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+        <div class="padlock-digits-row">
+          <div class="padlock-digit" id="pd-0">_</div>
+          <div class="padlock-digit" id="pd-1">_</div>
+          <div class="padlock-digit" id="pd-2">_</div>
+          <div class="padlock-digit" id="pd-3">_</div>
+        </div>
+        <div class="padlock-hint">INSIRA O CÓDIGO DE 4 DÍGITOS</div>
+        <div class="padlock-actions">
+          <button class="btn" onclick="Apps.submitPadlock()">[ CONFIRMAR ] (ENTER)</button>
+          <button class="btn btn-danger" onclick="Apps.closePadlock()">[ CANCELAR ]</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    // Escuta teclado
+    overlay._keyHandler = (e) => {
+      if (e.key >= '0' && e.key <= '9') Apps._padlockType(e.key);
+      else if (e.key === 'Backspace') Apps._padlockBackspace();
+      else if (e.key === 'Enter') Apps.submitPadlock();
+      else if (e.key === 'Escape') Apps.closePadlock();
+    };
+    document.addEventListener('keydown', overlay._keyHandler);
+    // Foca no overlay para captura de teclado
+    overlay.setAttribute('tabindex', '-1');
+    setTimeout(() => overlay.focus(), 50);
+  }
+
+  function _padlockType(digit) {
+    if (_padlockCursor >= 4) return;
+    _padlockDigits[_padlockCursor] = digit;
+    const el = $(`pd-${_padlockCursor}`);
+    if (el) { el.textContent = '•'; el.classList.add('padlock-digit-filled'); }
+    _padlockCursor++;
+    if (_padlockCursor < 4) {
+      const next = $(`pd-${_padlockCursor}`);
+      if (next) next.classList.add('padlock-digit-active');
+    }
+    const prev = $(`pd-${_padlockCursor - 1}`);
+    if (prev) prev.classList.remove('padlock-digit-active');
+  }
+
+  function _padlockBackspace() {
+    if (_padlockCursor <= 0) return;
+    _padlockCursor--;
+    _padlockDigits[_padlockCursor] = '_';
+    const el = $(`pd-${_padlockCursor}`);
+    if (el) { el.textContent = '_'; el.classList.remove('padlock-digit-filled', 'padlock-digit-active'); el.classList.add('padlock-digit-active'); }
+  }
+
+  async function submitPadlock() {
+    const code = _padlockDigits.join('');
+    if (code.includes('_') || code.length !== 4) {
+      _padlockShake();
+      return;
+    }
+    const enteredHash = await hashPin(code);
+    if (enteredHash !== _padlockHash) {
+      _padlockShake();
+      // Reset digits
+      _padlockDigits = ['_', '_', '_', '_'];
+      _padlockCursor = 0;
+      for (let i = 0; i < 4; i++) {
+        const el = $(`pd-${i}`);
+        if (el) { el.textContent = '_'; el.className = 'padlock-digit' + (i === 0 ? ' padlock-digit-active' : ''); }
+      }
+      return;
+    }
+    // SUCESSO — animar abertura
+    const svg = $('padlock-svg');
+    const arc = $('padlock-arc');
+    const body = $('padlock-body');
+    if (arc) arc.setAttribute('stroke', '#00ff00');
+    if (body) body.setAttribute('stroke', '#00ff00');
+    if (svg) svg.classList.add('padlock-open-anim');
+
+    // Atualizar banco após animação
+    setTimeout(async () => {
+      const db = Auth.db();
+      if (db) await db.from('vault_items').update({ is_unlocked: true }).eq('id', _padlockTarget);
+      Apps.closePadlock();
+      loadVault();
+    }, 900);
+  }
+
+  function _padlockShake() {
+    const svg = $('padlock-svg');
+    if (!svg) return;
+    svg.classList.add('padlock-shake');
+    const body = $('padlock-body');
+    if (body) body.setAttribute('stroke', '#ff3300');
+    setTimeout(() => {
+      svg.classList.remove('padlock-shake');
+      if (body) body.setAttribute('stroke', '#00ff41');
+    }, 600);
+    Boot?.playSound?.('error');
+  }
+
+  function closePadlock() {
+    const overlay = $('padlock-modal-overlay');
+    if (overlay) {
+      if (overlay._keyHandler) document.removeEventListener('keydown', overlay._keyHandler);
+      overlay.remove();
+    }
+    _padlockTarget = null;
+    _padlockHash = null;
+  }
+
+  function subscribeVaultUnlocks() {
+    const db = Auth.db();
+    if (!db) return;
+    db.channel('public:vault_items')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'vault_items' }, payload => {
+        if (payload.new?.is_unlocked && !payload.old?.is_unlocked) {
+          showNotification('COFRE ABERTO', `Arquivo "${payload.new.title}" foi desbloqueado.`, 'success');
+          loadVault();
+        }
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'vault_items' }, () => loadVault())
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'vault_items' }, () => loadVault())
+      .subscribe();
   }
 
   /* ══════════════════════════════════════════════════════════
@@ -2094,6 +2321,7 @@ const Apps = (() => {
     subscribeEmails();
     subscribeChat();
     subscribeStoreItems();
+    subscribeVaultUnlocks();
   }
 
   function subscribeStoreItems() {
@@ -2505,7 +2733,8 @@ const Apps = (() => {
     showNotification, initGlobalRealtime,
     showModal, buyItem,
     initInventory, initStats, initMap, openMugshotUpload,
-    deleteItem, selectCombatTarget, applyCombatAction, updateStat, toggleEquip
+    deleteItem, selectCombatTarget, applyCombatAction, updateStat, toggleEquip,
+    deleteVaultItem, openPadlock, closePadlock, submitPadlock, _padlockType, _padlockBackspace
   };
 
 })();
