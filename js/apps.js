@@ -2391,19 +2391,34 @@ const Apps = (() => {
       sources: ['local', 'url', 'camera'],
       multiple: false,
       cropping: true,
-      croppingAspectRatio: 1, // Quadrado
-      resourceType: 'image'
+      croppingAspectRatio: 1,
+      resourceType: 'image',
+      showCompleted: false // Fecha ao invés de mostrar botão Done bloqueado
     }, async (err, result) => {
-      if (!err && result.event === 'success') {
+      if (err) {
+        console.error('[CLOUDINARY] Erro no widget:', err);
+        showNotification('FALHA DE UPLOAD', 'Erro na conexão com Cloudinary.', 'error');
+        return;
+      }
+
+      if (result.event === 'success') {
         const url = result.info.secure_url;
         const db = Auth.db();
         if (db) {
-          const { error } = await db.from('profiles').update({ avatar_url: url }).eq('id', Auth.getUser()?.id);
-          if (!error) {
-            showNotification('MUGSHOT ATUALIZADO', 'Nova foto registrada no Mainframe.', 'success');
-            refreshStats(true);
+          try {
+            const { error } = await db.from('profiles').update({ avatar_url: url }).eq('id', Auth.getUser()?.id);
+            if (!error) {
+              showNotification('MUGSHOT ATUALIZADO', 'Nova foto registrada no Mainframe.', 'success');
+              refreshStats(true);
+            } else {
+              throw error;
+            }
+          } catch (dbErr) {
+            console.error('[DATABASE] Erro ao salvar avatar:', dbErr);
+            showNotification('ERRO DE SINCRONIA', 'Upload OK, mas falha ao salvar no banco.', 'alert');
           }
         }
+        widget.close();
       }
     });
     widget.open();
