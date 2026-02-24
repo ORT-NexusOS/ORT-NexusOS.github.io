@@ -1622,3 +1622,42 @@
         max-height: 220px;
     }
 }
+/* -- Rarity System ----------------------------------------- */
+.common { border-color: var(--green) !important; color: var(--green) !important; }
+.uncommon { border-color: #00ffcc !important; color: #00ffcc !important; box-shadow: 0 0 10px rgba(0, 255, 204, 0.3); }
+.rare { border-color: #00acff !important; color: #00acff !important; box-shadow: 0 0 15px rgba(0, 172, 255, 0.4); }
+.legendary { border-color: var(--amber) !important; color: var(--amber) !important; box-shadow: 0 0 20px rgba(255, 176, 0, 0.5); font-weight: bold; }
+
+.notification-toast.uncommon { border-width: 2px !important; }
+.notification-toast.rare { border-width: 2px !important; }
+.notification-toast.legendary { border-width: 3px !important; border-style: double !important; }
+
+.notification-toast.uncommon::after { background: #00ffcc; }
+.notification-toast.rare::after { background: #00acff; }
+.notification-toast.legendary::after { background: var(--amber); }
+
+.rarity-badge {
+    padding: 3px 10px;
+    font-size: 10px;
+    font-family: var(--font-logo);
+    text-transform: uppercase;
+    border: 1px solid;
+    margin-top: 5px;
+    display: inline-block;
+}
+
+@keyframes slideInRight {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideOutRight {
+    from { transform: translateX(0); opacity: 1; }
+    to { transform: translateX(100%); opacity: 0; }
+}
+
+@keyframes toastProgress {
+    from { width: 100%; }
+    to { width: 0%; }
+}
+

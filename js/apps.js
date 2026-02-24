@@ -1544,20 +1544,26 @@ const Apps = (() => {
 
   /* ── Itens Admin ───────────────────────────────────────── */
   async function createItem() {
-    const name = $('it-name').value;
-    const desc = $('it-desc').value;
-    const cat = $('it-cat').value;
-    const rare = $('it-rare').value;
-    const price = parseInt($('it-price').value) || 0;
-    const isLoot = $('it-loot').checked;
-    const content = $('it-content').value;
-    const itemType = $('it-technical-type').value;
-    const damageDice = $('it-dice').value;
+    const name = $('it-name')?.value;
+    const desc = $('it-desc')?.value;
+    const cat = $('it-cat')?.value;
+    const rare = $('it-rare')?.value;
+    const price = parseInt($('it-price')?.value) || 0;
+    const isLoot = $('it-loot')?.checked;
+    const content = $('it-content')?.value;
+    const itemType = $('it-technical-type')?.value;
+    const damageDice = $('it-dice')?.value;
 
-    if (!name) return;
+    if (!name) {
+      showNotification('ERRO DE DADOS', 'O NOME DO ITEM É OBRIGATÓRIO.', 'alert');
+      return;
+    }
 
     const db = Auth.db();
-    if (!db) return;
+    if (!db) {
+      showNotification('ERRO DE CONEXÃO', 'DATABASE INDISPONÍVEL.', 'alert');
+      return;
+    }
 
     const { error } = await db.from('store_items').insert({
       name,
@@ -1574,6 +1580,16 @@ const Apps = (() => {
     if (!error) {
       showNotification('FABRICAÇÃO CONCLUÍDA', `ITEM ${name} REGISTRADO NO BANCO.`, 'success');
       loadAdminItems();
+
+      // Limpar formulário
+      $('it-name').value = '';
+      $('it-desc').value = '';
+      $('it-price').value = '0';
+      $('it-technical-type').value = '';
+      $('it-dice').value = '';
+      if ($('it-content')) $('it-content').value = '';
+    } else {
+      showModal({ title: 'FALHA NA FÁBRICA', body: 'ERRO AO INSERIR NO BANCO: ' + error.message, type: 'alert' });
     }
   }
 
@@ -1713,15 +1729,17 @@ const Apps = (() => {
     if (!container) return;
 
     const toast = document.createElement('div');
+    // Suporte para tipos de raridade (common, uncommon, rare, legendary)
     toast.className = `notification-toast ${type}`;
     toast.innerHTML = `
-            <div class="notification-header">> NOVO ALERTA SISTEMA</div>
+            <div class="notification-header">> ${title || 'NOVO ALERTA SISTEMA'}</div>
             <div class="notification-body">${body}</div>
         `;
 
     toast.onclick = () => {
       toast.remove();
       if (type === 'new-email') openApp('emails');
+      if (type === 'new-item' || ['common', 'uncommon', 'rare', 'legendary'].includes(type)) openApp('shop');
     };
 
     container.appendChild(toast);
@@ -1988,9 +2006,20 @@ const Apps = (() => {
     const m = $('modal-item-details');
     if (!m) return;
 
+    const rarity = item.rarity || 'common';
+
     $('item-detail-icon').textContent = item.category === 'weapon' ? '🔫' : (item.category === 'armor' ? '🛡️' : '📦');
     $('item-detail-name').textContent = item.name;
+    $('item-detail-name').className = rarity; // Cor do nome por raridade
+
     $('item-detail-type').textContent = item.item_type || item.category.toUpperCase();
+
+    // Badge de Raridade
+    const rarityBadge = $('item-detail-rarity');
+    if (rarityBadge) {
+      rarityBadge.textContent = rarity.toUpperCase();
+      rarityBadge.className = `rarity-badge ${rarity}`;
+    }
 
     const dmgCont = $('item-detail-damage-cont');
     if (item.damage_dice) {
@@ -2000,7 +2029,13 @@ const Apps = (() => {
       dmgCont.style.display = 'none';
     }
 
-    $('item-detail-desc').textContent = item.description || 'Nenhuma especificação técnica disponível.';
+    // Descrição e Lore
+    let descriptionText = item.description || 'Nenhuma especificação técnica disponível.';
+    if (item.content) {
+      descriptionText += `<br><br><div style="color:var(--green-mid); font-style:italic; border-top:1px solid var(--border-dim); padding-top:10px;">> DADOS ADICIONAIS:<br>${item.content}</div>`;
+    }
+
+    $('item-detail-desc').innerHTML = descriptionText;
     $('item-detail-price').textContent = `PREÇO: CR$ ${item.price.toLocaleString('pt-BR')}`;
 
     const buyBtn = $('btn-buy-from-detail');
@@ -2068,11 +2103,13 @@ const Apps = (() => {
     db.channel('public:store_items')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'store_items' }, payload => {
         const item = payload.new;
-        // Notifica todos os agentes sobre o novo item
-        showNotification('NOVO ITEM NO ARMAZÉM', `${item.name} foi adicionado ao estoque.`, 'new-item');
+        const rarity = item.rarity || 'common';
+
+        // Notifica todos os agentes sobre o novo item com cor de raridade
+        showNotification('NOVO ITEM NO ARMAZÉM', `${item.name} foi adicionado ao estoque.`, rarity);
         Boot.playBeep(880, 0.05, 0.15);
 
-        // Exibe o pop-up de detalhes automaticamente (como o bug anterior, mas intencional)
+        // Exibe o pop-up de detalhes automaticamente
         showItemDetails(item);
 
         // Atualiza a loja se estiver aberta

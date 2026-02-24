@@ -77,6 +77,31 @@ CREATE TABLE IF NOT EXISTS videos (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 6. LOJA (STORE ITEMS)
+CREATE TABLE IF NOT EXISTS store_items (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  category TEXT, -- 'weapon', 'armor', 'consumable', 'document', etc.
+  rarity TEXT DEFAULT 'common',
+  price INTEGER DEFAULT 0,
+  is_loot BOOLEAN DEFAULT FALSE,
+  content TEXT, -- Para documentos/lore
+  item_type TEXT,
+  damage_dice TEXT,
+  technical_meta JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 7. INVENTÁRIO
+CREATE TABLE IF NOT EXISTS inventory (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  item_id UUID REFERENCES store_items(id) ON DELETE CASCADE,
+  is_equipped BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Itens do Cofre (apenas admin)
 CREATE TABLE IF NOT EXISTS vault_items (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -116,6 +141,8 @@ ALTER TABLE artworks        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE videos          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vault_items     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE timeline_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE store_items     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE inventory       ENABLE ROW LEVEL SECURITY;
 
 -- Leitura: usuários autenticados podem ler tudo
 CREATE POLICY "autenticados_ler_profiles"        ON profiles        FOR SELECT USING (auth.role() = 'authenticated');
@@ -138,6 +165,14 @@ CREATE POLICY "autenticados_inserir_timeline"    ON timeline_events FOR INSERT W
 CREATE POLICY "autenticados_atualizar_missions"  ON missions        FOR UPDATE USING (auth.role() = 'authenticated');
 CREATE POLICY "autenticados_atualizar_timeline"  ON timeline_events FOR UPDATE USING (auth.role() = 'authenticated');
 CREATE POLICY "autenticados_atualizar_profiles"  ON profiles        FOR UPDATE USING (auth.role() = 'authenticated');
+
+-- Loja/Inventário
+CREATE POLICY "autenticados_ler_store" ON store_items FOR SELECT USING (true);
+CREATE POLICY "autenticados_ler_inventory" ON inventory FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "autenticados_inserir_inventory" ON inventory FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "adm_gerenciar_loja" ON store_items FOR ALL USING (
+  EXISTS (SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.role = 'admin')
+);
 
 -- Políticas Notas
 CREATE POLICY "Users can view own notes" ON notes FOR SELECT USING (auth.uid() = user_id);
