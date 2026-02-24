@@ -9,7 +9,7 @@
     background: var(--bg);
     display: grid;
     grid-template-rows: auto 1fr auto;
-    z-index: 800;
+    z-index: var(--z-desktop);
     overflow: hidden;
     width: 100vw;
     height: 100vh;
@@ -293,7 +293,7 @@
     box-shadow:
         0 0 16px var(--green-glow),
         inset 0 0 10px rgba(0, 255, 65, 0.03);
-    z-index: 2000;
+    z-index: var(--z-start-menu);
     padding: 4px 0;
 }
 
@@ -342,11 +342,21 @@
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.5);
-    z-index: 1500;
+    z-index: var(--z-app-overlay);
     display: flex;
     align-items: center;
     justify-content: center;
     animation: fadeIn 0.2s ease;
+}
+
+.modal-overlay-active {
+    z-index: var(--z-modal) !important;
+}
+
+#modal-edit-artwork,
+#upload-modal {
+    z-index: var(--z-modal-top) !important;
+    /* Quase o mesmo que o Lightbox */
 }
 
 @keyframes fadeIn {
@@ -372,7 +382,7 @@
     flex-direction: column;
     animation: windowOpen 0.2s ease;
     position: relative;
-    z-index: 1500;
+    z-index: var(--z-app-window);
 }
 
 @keyframes windowOpen {
@@ -435,6 +445,8 @@
     gap: 12px;
     border-top: 1px solid var(--border-dim);
     padding-top: 20px;
+    flex-wrap: wrap;
+    /* Suporte para mobile */
 }
 
 /* Double border inner */
@@ -523,19 +535,196 @@
     flex: 1;
 }
 
-/* ── Gallery Grid ────────────────────────────────────────── */
+.shop-card {
+    background: rgba(0, 30, 0, 0.4);
+    border: 1px solid var(--border-dim);
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.shop-card:hover {
+    border-color: var(--green);
+    background: rgba(0, 50, 0, 0.5);
+    box-shadow: 0 0 15px var(--green-glow);
+}
+
+.shop-card-icon {
+    height: 120px;
+    background: rgba(0, 255, 65, 0.05);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(0, 255, 65, 0.1);
+    font-size: 30px;
+}
+
+.shop-card-title {
+    font-family: var(--font-logo);
+    font-size: 14px;
+    color: var(--green);
+}
+
+.shop-card-desc {
+    font-family: var(--font-code);
+    font-size: 11px;
+    color: var(--green-mid);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    line-clamp: 3;
+}
+
+/* ── Mugshot Styles ──────────────────────────────────────── */
+.mugshot-container {
+    width: 100px;
+    height: 100px;
+    border: 2px solid var(--border-dim);
+    position: relative;
+    background: rgba(0, 40, 0, 0.3);
+    overflow: hidden;
+    cursor: pointer;
+}
+
+.mugshot-container:hover {
+    border-color: var(--green);
+}
+
+.mugshot-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: none;
+}
+
+.mugshot-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    font-size: 40px;
+    color: var(--green-dark);
+}
+
+.mugshot-container:hover .mugshot-placeholder {
+    color: var(--green);
+}
+
+.mugshot-upload-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s;
+    font-size: 10px;
+    color: var(--green);
+    text-align: center;
+    padding: 5px;
+}
+
+.mugshot-container:hover .mugshot-upload-overlay {
+    opacity: 1;
+}
+
 #gallery-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: 12px;
+    padding: 10px 0;
+    align-items: flex-start;
 }
 
 .gallery-card {
     border: 1px solid var(--border-dim);
     background: var(--bg-panel);
+    position: relative;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all 0.2s;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.gallery-card-crt {
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(0deg,
+            rgba(0, 0, 0, 0.1) 0px,
+            rgba(0, 0, 0, 0.1) 1px,
+            transparent 1px,
+            transparent 2px);
+    pointer-events: none;
+    z-index: 5;
+    opacity: 0.4;
+}
+
+.gallery-card-actions {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    display: flex;
+    gap: 6px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    z-index: 20;
+}
+
+.gallery-card:hover .gallery-card-actions {
+    opacity: 1;
+}
+
+.gallery-card-img-wrap {
+    width: 100%;
+    aspect-ratio: 1/1;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.gallery-card img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    /* Não corta as artes */
+    display: block;
+    filter: brightness(0.9) contrast(1.1);
+    transition: filter 0.2s;
+}
+
+.gallery-card:hover img {
+    filter: brightness(1.05) contrast(1.1);
+}
+
+.btn-action-sm {
+    padding: 2px 6px;
+    font-size: 10px;
+    background: rgba(0, 0, 0, 0.8);
+    border: 1px solid var(--border-dim);
+    color: var(--green-mid);
+    cursor: pointer;
+    font-family: var(--font-code);
+}
+
+.btn-action-sm:hover {
+    border-color: var(--green);
+    color: var(--green);
+}
+
+.btn-action-danger:hover {
+    border-color: var(--red-alert);
+    color: var(--red-alert);
 }
 
 .gallery-card:hover {
@@ -543,21 +732,9 @@
     box-shadow: 0 0 10px var(--green-glow);
 }
 
-.gallery-card img {
-    width: 100%;
-    height: 130px;
-    object-fit: cover;
-    display: block;
-    filter: saturate(0.3) sepia(1) hue-rotate(90deg) brightness(0.9) contrast(1.2);
-    transition: filter 0.2s;
-}
-
-.gallery-card:hover img {
-    filter: saturate(0.5) sepia(1) hue-rotate(90deg) brightness(1) contrast(1.1);
-}
-
 .gallery-card-info {
-    padding: 6px 8px;
+    padding: 10px 8px;
+    background: rgba(0, 255, 65, 0.02);
     border-top: 1px solid var(--border-dim);
 }
 
@@ -686,12 +863,14 @@
 .email-sender {
     font-family: var(--font-code);
     font-size: 13px;
-    color: var(--green-mid);
+    color: var(--green);
+    /* Aumentado brilho para contraste */
 }
 
 .email-subject {
     font-size: 16px;
-    color: var(--green-dim);
+    color: var(--green-mid);
+    /* Aumentado brilho */
 }
 
 .email-date {
@@ -716,10 +895,13 @@
     height: 100%;
     min-height: 300px;
     background: transparent;
-    border: none;
+    border: 1px solid var(--border-dim);
+    padding: 15px;
     font-size: 16px;
+    color: var(--green-mid);
     resize: none;
     line-height: 1.7;
+    outline: none;
 }
 
 #terminal-output {
@@ -863,7 +1045,7 @@
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.7);
-    z-index: 3000;
+    z-index: var(--z-modal);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -875,8 +1057,11 @@
     box-shadow: 0 0 30px var(--green-glow);
     width: min(500px, 90vw);
     padding: 0;
-    z-index: 3100;
     position: relative;
+}
+
+.modal-overlay-active {
+    z-index: var(--z-modal) !important;
 }
 
 .modal-header {
@@ -962,11 +1147,12 @@
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.95);
-    z-index: 100000 !important;
+    z-index: var(--z-lightbox) !important;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-direction: column;
+    backdrop-filter: blur(10px);
 }
 
 #lightbox img {
@@ -1029,7 +1215,7 @@
     position: fixed;
     top: 20px;
     right: 20px;
-    z-index: 9999;
+    z-index: var(--z-notification);
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -1074,7 +1260,7 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    z-index: 2000000;
+    z-index: var(--z-notification);
     pointer-events: none;
 }
 
@@ -1162,6 +1348,17 @@
         font-size: 10px;
     }
 
+    /* Clarificar labels de e-mail para melhor leitura no mobile */
+    .email-meta-label {
+        color: var(--green-mid) !important;
+        font-weight: bold;
+    }
+
+    .email-view-body {
+        color: #b0ccb0 !important;
+        /* Verde mais claro para leitura */
+    }
+
     #desktop-body {
         grid-template-columns: 1fr;
         grid-template-rows: auto 1fr;
@@ -1231,6 +1428,33 @@
     .body-status-visual {
         transform: scale(0.8);
         margin: -10px auto;
+    }
+
+    /* Otimização da Loja para Mobile */
+    #shop-grid {
+        grid-template-columns: 1fr !important;
+        padding: 10px !important;
+        gap: 15px !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .shop-card {
+        padding: 10px !important;
+        min-height: auto !important;
+    }
+
+    .shop-card-icon {
+        height: 80px !important;
+        /* Menor no mobile */
+    }
+
+    .shop-card-desc {
+        font-size: 10px !important;
+        display: -webkit-box;
+        -webkit-line-clamp: 2 !important;
+        -webkit-box-orient: vertical;
+        line-clamp: 2 !important;
     }
 }
 
