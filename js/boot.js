@@ -3,6 +3,11 @@
    O.R.T. — Ordem da Realidade e Tempo
    ============================================================ */
 
+const $ = id => document.getElementById(id);
+const Utils = {
+    esc: str => (str || '').replace(/'/g, "\\'")
+};
+
 const Boot = (() => {
 
     /* ── Web Audio: CRT Sounds ──────────────────────────────── */
@@ -81,7 +86,6 @@ const Boot = (() => {
     ];
 
     /* ── DOM helpers ────────────────────────────────────────── */
-    const $ = id => document.getElementById(id);
     function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
     /* ── Boot Sequence ──────────────────────────────────────── */
@@ -258,3 +262,29 @@ _style.textContent = `
   }
 `;
 document.head.appendChild(_style);
+
+/* ── Entry Point (Consolidated from index.html) ─────────────── */
+document.addEventListener('DOMContentLoaded', async () => {
+    // Show demo credentials hint if Supabase not configured
+    const isDemo = NEXUS_CONFIG.supabase.url === 'YOUR_SUPABASE_URL';
+    const hint = $('demo-hint');
+
+    // Check for existing session (skip boot if already logged in)
+    const existingUser = await Auth.checkExistingSession();
+    if (existingUser) {
+        $('screen-boot').style.display = 'none';
+        $('screen-desktop').classList.remove('hidden');
+        Desktop.init(existingUser);
+        return;
+    }
+
+    // Show demo hint on login screen
+    if (hint && isDemo) {
+        hint.innerHTML = `MODO DEMO &nbsp;|&nbsp; 
+        admin@ort.gov / admin123 &nbsp;|&nbsp; 
+        agente@ort.gov / agente123`;
+    }
+
+    // Run full boot sequence
+    Boot.runBootSequence();
+});

@@ -27,6 +27,19 @@
 
   --scanline-opacity: 0.12;
   --transition: 0.15s ease;
+
+  /* Z-Index Scale */
+  --z-scanlines: 10000;
+  --z-vignette: 9999;
+  --z-notification: 9500;
+  --z-lightbox: 9000;
+  --z-modal-top: 8500;
+  --z-modal: 8000;
+  --z-app-overlay: 7000;
+  --z-start-menu: 6000;
+  --z-taskbar: 5000;
+  --z-app-window: 1500;
+  --z-desktop: 100;
 }
 
 /* ── Reset ────────────────────────────────────────────────── */
@@ -68,7 +81,7 @@ body::before {
       rgba(0, 0, 0, var(--scanline-opacity)) 2px,
       rgba(0, 0, 0, var(--scanline-opacity)) 4px);
   pointer-events: none;
-  z-index: 10000;
+  z-index: var(--z-scanlines);
 }
 
 /* ── CRT Vignette ─────────────────────────────────────────── */
@@ -80,7 +93,7 @@ body::after {
       transparent 60%,
       rgba(0, 0, 0, 0.6) 100%);
   pointer-events: none;
-  z-index: 9999;
+  z-index: var(--z-vignette);
 }
 
 /* ── Glow Effects ─────────────────────────────────────────── */
@@ -197,7 +210,7 @@ body::after {
   }
 
   100% {
-    top: 93%;
+    top: 94%;
   }
 }
 
@@ -501,6 +514,29 @@ select option {
 .rpg-bar-fill {
   height: 100%;
   transition: width 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.rpg-bar-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  animation: liquid-flow 2s infinite linear;
+}
+
+@keyframes liquid-flow {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(100%);
+  }
 }
 
 .hp-fill {
@@ -561,7 +597,4 @@ select option {
   background: rgba(0, 255, 65, 0.1);
   transition: height 0.5s ease;
   border-top: 2px solid var(--green);
-
 }
-
-

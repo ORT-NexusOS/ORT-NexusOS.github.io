@@ -4,8 +4,6 @@
 
 const Apps = (() => {
 
-  const $ = id => document.getElementById(id);
-
   /* ── App Titles ─────────────────────────────────────────── */
   const META = {
     gallery: { icon: '🖼', title: 'ARQUIVO DE ARTES', path: 'O.R.T. > ARTE > GALERIA' },
@@ -86,42 +84,28 @@ const Apps = (() => {
       <div id="gallery-grid">
         <div class="loading-state">CARREGANDO GALERIA<span class="loading-dots"></span></div>
       </div>
-      <!-- Upload Modal -->
-      <div id="upload-modal" class="hidden">
-        <div class="modal-box" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:4000;">
-          <div class="modal-header">ENVIAR NOVA ARTE</div>
-          <div class="modal-body">
-            <div class="login-field" style="margin-bottom:14px;">
-              <label class="login-label">&gt; TÍTULO DA OBRA</label>
-              <input type="text" id="art-title" placeholder="Ex: O Corredor Proibido">
-            </div>
-            <div class="login-field">
-              <label class="login-label">&gt; SEU NOME (ARTISTA)</label>
-              <input type="text" id="art-author" placeholder="Ex: Agente 007">
-            </div>
-            <div style="margin-top:16px;text-align:center;">
-              <button class="btn" id="btn-cloudinary-upload" style="width:100%;padding:12px;letter-spacing:3px;">
-                [ SELECIONAR ARQUIVO ]
-              </button>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button class="btn btn-danger" id="btn-cancel-upload">[ CANCELAR ]</button>
-          </div>
-        </div>
-      </div>
       </div>`;
   }
 
   function initGallery() {
     loadGallery();
     $('btn-upload-art')?.addEventListener('click', () => {
-      $('upload-modal')?.classList.remove('hidden');
+      const modal = $('upload-modal');
+      if (modal) {
+        document.body.appendChild(modal);
+        modal.classList.remove('hidden');
+      }
     });
     $('btn-cancel-upload')?.addEventListener('click', () => {
       $('upload-modal')?.classList.add('hidden');
     });
     $('btn-cloudinary-upload')?.addEventListener('click', openCloudinaryWidget);
+
+    // Handlers para Edição
+    $('btn-cancel-edit-art')?.addEventListener('click', () => {
+      $('modal-edit-artwork')?.classList.add('hidden');
+    });
+    $('btn-save-edit-art')?.addEventListener('click', saveEditArtwork);
   }
 
   function openCloudinaryWidget() {
@@ -202,19 +186,90 @@ const Apps = (() => {
       grid.innerHTML = `<div class="empty-state"><span class="empty-state-icon">🖼</span>GALERIA VAZIA — SEJA O PRIMEIRO A ENVIAR</div>`;
       return;
     }
-    grid.innerHTML = data.map(a => `
-      <div class="gallery-card" onclick="Apps.openLightbox('${a.cloudinary_url}','${a.title} — ${a.author}')">
-        <img src="${a.cloudinary_url}" alt="${a.title}" loading="lazy">
-        <div class="gallery-card-info">
-          <span class="gallery-card-title">${a.title}</span>
-          <span class="gallery-card-author">${a.author}</span>
-        </div>
-      </div>`).join('');
+    const user = Auth.getUser();
+    const isAdmin = Auth.isAdmin();
+
+    grid.innerHTML = data.map(a => {
+      const isOwner = user && a.uploaded_by === user.id;
+      const canManage = isOwner || isAdmin;
+
+      return `
+        <div class="gallery-card" onclick="Apps.openLightbox('${a.cloudinary_url}','${Utils.esc(a.title)} — ${Utils.esc(a.author)}')">
+          <div class="gallery-card-crt"></div>
+          ${canManage ? `
+          <div class="gallery-card-actions">
+            <button class="btn-action-sm" onclick="event.stopPropagation(); Apps.editArtwork('${a.id}', '${Utils.esc(a.title)}', '${Utils.esc(a.author)}')">[ EDITAR ]</button>
+            <button class="btn-action-sm btn-action-danger" onclick="event.stopPropagation(); Apps.deleteArtwork('${a.id}')">[ APAGAR ]</button>
+          </div>` : ''}
+          <div class="gallery-card-img-wrap">
+            <img src="${a.cloudinary_url}" alt="${a.title}" loading="lazy">
+          </div>
+          <div class="gallery-card-info">
+            <span class="gallery-card-title">${a.title}</span>
+            <span class="gallery-card-author">${a.author}</span>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function editArtwork(id, title, author) {
+    const modal = $('modal-edit-artwork');
+    if (!modal) return;
+    document.body.appendChild(modal); // Garante que seja o último filho do body (topo da pilha)
+    $('edit-art-id').value = id;
+    $('edit-art-title').value = title;
+    $('edit-art-author').value = author;
+    modal.classList.remove('hidden');
+  }
+
+  async function saveEditArtwork() {
+    const id = $('edit-art-id').value;
+    const title = $('edit-art-title').value;
+    const author = $('edit-art-author').value;
+    if (!title || !author) return;
+
+    const db = Auth.db();
+    const { error } = await db.from('artworks').update({ title, author }).eq('id', id);
+
+    if (!error) {
+      showNotification('REGISTRO ATUALIZADO', `A obra "${title}" foi modificada no banco de dados.`, 'success');
+      $('modal-edit-artwork').classList.add('hidden');
+      loadGallery();
+    }
+  }
+
+  async function deleteArtwork(id) {
+    showModal({
+      title: 'APAGAR OBRA',
+      body: 'ESTA AÇÃO É IRREVERSÍVEL. DESEJA EXCLUIR ESTA OBRA DO ARQUIVO?',
+      type: 'confirm',
+      onConfirm: async () => {
+        const db = Auth.db();
+        const { error } = await db.from('artworks').delete().eq('id', id);
+
+        if (!error) {
+          showNotification('ARQUIVO REMOVIDO', 'A obra foi deletada com sucesso.', 'success');
+          loadGallery();
+        } else {
+          console.group('FALHA NA EXCLUSÃO - NEXUS SYS');
+          console.error('Erro retornado:', error.message);
+          console.error('Código do erro:', error.code);
+          console.error('Dica: Verifique se você é o DONO da obra ou se o RLS permite DELETE para ADMIN.');
+          console.groupEnd();
+
+          showNotification('ACESSO NEGADO', `Erro: ${error.message} (Verifique console)`, 'error');
+        }
+      }
+    });
   }
 
   function openLightbox(src, caption) {
     const lb = $('lightbox');
     if (!lb) return;
+
+    // Forçar para o topo do DOM
+    document.body.appendChild(lb);
+
     $('lightbox-img').src = src;
     $('lightbox-caption').textContent = caption;
     lb.classList.remove('hidden');
@@ -552,6 +607,32 @@ const Apps = (() => {
     $('btn-compose-email')?.addEventListener('click', composeEmail);
   }
 
+  /* ── Inscrição em Tempo Real para E-mails ── */
+  function subscribeEmails() {
+    const db = Auth.db();
+    if (!db) return;
+
+    const userId = Auth.getUser()?.id;
+    const profile = Auth.getProfile();
+    const isAdmin = profile?.role === 'admin';
+
+    db.channel('public:emails')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'emails' }, payload => {
+        const email = payload.new;
+        if (email.sender_id === userId) return; // evitar eco
+
+        const isAll = email.recipient === 'all' || email.recipient_id === 'all' || !email.recipient_id;
+        const isForMe = email.recipient_id === userId;
+
+        if (isAll || isForMe || isAdmin) {
+          showNotification('NOVA COMUNICAÇÃO', `DE: ${email.sender}<br>ASSUNTO: ${email.subject}`, 'new-email');
+          Desktop.updateBadge('emails', 1, true);
+          if (document.getElementById('email-list')) loadEmails();
+        }
+      })
+      .subscribe();
+  }
+
   async function loadEmails() {
     const list = $('email-list');
     if (!list) return;
@@ -644,9 +725,9 @@ const Apps = (() => {
     if (!db) { alert('MODO DEMO: E-MAIL INDISPONÍVEL'); return; }
 
     const overlay = document.createElement('div');
-    overlay.className = 'app-overlay';
+    overlay.className = 'app-overlay modal-overlay-active';
     overlay.id = 'compose-overlay';
-    overlay.style.zIndex = '3500';
+    // z-index handled by CSS class modal-overlay-active
 
     overlay.innerHTML = `
             <div class="modal-box" style="width:min(500px, 90vw); position:relative;">
@@ -764,54 +845,119 @@ const Apps = (() => {
   ══════════════════════════════════════════════════════════ */
   function notepad() {
     return `
-      <div style="display:flex;flex-direction:column;height:100%;gap:8px;">
-        <div class="app-toolbar">
-          <button class="btn" id="btn-save-notes">[ 💾 SALVAR NA NUVEM ]</button>
-          <button class="btn btn-danger" id="btn-clear-notes">[ LIMPAR ]</button>
-          <span class="app-toolbar-sep"></span>
-          <span style="font-family:var(--font-code);font-size:12px;color:var(--green-dark);">SINCRO AUTOMÁTICA O.R.T. ATIVA</span>
+      <div style="display:grid; grid-template-columns: 220px 1fr; height:100%; gap:0; background:rgba(0,10,0,0.2);">
+        <div style="border-right:1px solid var(--border-dim); display:flex; flex-direction:column; background:rgba(0,40,0,0.1);">
+          <div class="app-toolbar" style="padding:10px; border-bottom:1px solid var(--border-dim);">
+            <button class="btn" style="width:100%; font-size:11px;" id="btn-new-note">[ + NOVA NOTA ]</button>
+          </div>
+          <div id="note-list" style="flex:1; overflow-y:auto; padding:5px; display:flex; flex-direction:column; gap:5px;">
+             <div class="loading-state">BUSCANDO NOTAS<span class="loading-dots"></span></div>
+          </div>
         </div>
-        <textarea id="notepad-area" class="notepad-area" style="flex:1;resize:none;background:transparent;border:1px solid var(--border-dim);padding:12px;font-family:var(--font-code);font-size:15px;color:var(--green-mid);line-height:1.7;outline:none;" placeholder=">>> Carregando notas do Mainframe..."></textarea>
+        <div style="display:flex; flex-direction:column; height:100%;">
+          <div class="app-toolbar" style="padding:10px; border-bottom:1px solid var(--border-dim); display:flex; gap:10px; align-items:center;">
+             <input type="text" id="note-title" placeholder="Título da nota..." style="flex:1; background:transparent; border:none; color:var(--green); font-family:var(--font-code); font-size:14px; outline:none; font-weight:bold;">
+             <button class="btn" id="btn-save-note" style="font-size:11px;">[ 💾 SALVAR ]</button>
+             <button class="btn btn-danger" id="btn-delete-note" style="font-size:11px;">[ APAGAR ]</button>
+          </div>
+          <textarea id="notepad-area" class="notepad-area" style="flex:1; resize:none; background:transparent; border:none; padding:15px; font-family:var(--font-code); font-size:15px; color:var(--green-mid); line-height:1.7; outline:none;" placeholder="Comece a digitar sua nota classificada..."></textarea>
+        </div>
       </div>`;
   }
 
-  async function initNotepad() {
-    const area = $('notepad-area');
-    const db = Auth.db();
+  let _selectedNoteId = null;
 
-    // Carregar conteúdo
-    if (db) {
-      const { data } = await db.from('notes').select('content').eq('user_id', Auth.getUser()?.id).single();
-      if (area) area.value = data?.content || '';
-    } else {
-      const key = `nexus_notes_${Auth.getProfile()?.id || 'demo'}`;
-      if (area) area.value = localStorage.getItem(key) || '';
+  async function initNotepad() {
+    loadNotes();
+    $('btn-new-note')?.addEventListener('click', () => {
+      _selectedNoteId = null;
+      $('note-title').value = 'NOVA NOTA';
+      $('notepad-area').value = '';
+      $('note-title').focus();
+    });
+    $('btn-save-note')?.addEventListener('click', saveNote);
+    $('btn-delete-note')?.addEventListener('click', deleteNote);
+  }
+
+  async function loadNotes() {
+    const list = $('note-list');
+    if (!list) return;
+    const db = Auth.db();
+    if (!db) {
+      list.innerHTML = '<div class="empty-state">MODO DEMO</div>';
+      return;
     }
 
-    $('btn-save-notes')?.addEventListener('click', async () => {
-      const content = $('notepad-area')?.value || '';
-      const db = Auth.db();
-      if (db) {
-        const userId = Auth.getUser()?.id;
-        await db.from('notes').upsert({ user_id: userId, content, updated_at: new Date() }, { onConflict: 'user_id' });
-        Boot.playBeep(880, 0.05, 0.08);
-        showModal({ title: 'SINCRO CONCLUÍDA', body: 'NOTAS SINCRONIZADAS COM O MAINFRAME.', type: 'alert' });
-      } else {
-        const key = `nexus_notes_${Auth.getProfile()?.id || 'demo'}`;
-        localStorage.setItem(key, content);
-        alert('SALVO LOCALMENTE (MODO DEMO).');
-      }
-    });
-    $('btn-clear-notes')?.addEventListener('click', async () => {
-      if (confirm('Limpar todas as notas?')) {
-        if ($('notepad-area')) $('notepad-area').value = '';
+    const { data } = await db.from('notes').select('*').eq('user_id', Auth.getUser()?.id).order('updated_at', { ascending: false });
+    list.innerHTML = '';
+
+    if (data && data.length > 0) {
+      data.forEach(note => {
+        const item = document.createElement('div');
+        item.style.cssText = `padding:10px; border:1px solid var(--border-dim); cursor:pointer; font-size:12px; color:var(--green-mid); background:rgba(0,255,65,0.02); transition:all 0.2s; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;`;
+        item.textContent = note.title || 'Sem título';
+        item.onclick = () => openNote(note);
+        if (_selectedNoteId === note.id) item.style.borderColor = 'var(--green)';
+        list.appendChild(item);
+      });
+    } else {
+      list.innerHTML = '<div class="empty-state">SEM NOTAS</div>';
+    }
+  }
+
+  function openNote(note) {
+    _selectedNoteId = note.id;
+    $('note-title').value = note.title || '';
+    $('notepad-area').value = note.content || '';
+    loadNotes(); // Refresh to show selection
+  }
+
+  async function saveNote() {
+    const title = $('note-title').value.trim();
+    const content = $('notepad-area').value;
+    if (!title) { showNotification('ERRO', 'Título obrigatório.', 'error'); return; }
+
+    const db = Auth.db();
+    if (!db) return;
+
+    const payload = {
+      user_id: Auth.getUser()?.id,
+      title,
+      content,
+      updated_at: new Date()
+    };
+
+    let error;
+    if (_selectedNoteId) {
+      const res = await db.from('notes').update(payload).eq('id', _selectedNoteId);
+      error = res.error;
+    } else {
+      const res = await db.from('notes').insert(payload).select();
+      error = res.error;
+      if (res.data?.[0]) _selectedNoteId = res.data[0].id;
+    }
+
+    if (!error) {
+      showNotification('SINCRO OK', 'Nota salva no mainframe.', 'success');
+      loadNotes();
+    } else {
+      showModal({ title: 'FALHA DE SINCRO', body: error.message, type: 'alert' });
+    }
+  }
+
+  async function deleteNote() {
+    if (!_selectedNoteId) return;
+    showModal({
+      title: 'CONFIRMAR EXCLUSÃO',
+      body: 'Deseja apagar esta nota permanentemente?',
+      type: 'confirm',
+      onConfirm: async () => {
         const db = Auth.db();
-        if (db) {
-          await db.from('notes').delete().eq('user_id', Auth.getUser()?.id);
-        } else {
-          const key = `nexus_notes_${Auth.getProfile()?.id || 'demo'}`;
-          localStorage.removeItem(key);
-        }
+        await db.from('notes').delete().eq('id', _selectedNoteId);
+        _selectedNoteId = null;
+        $('note-title').value = '';
+        $('notepad-area').value = '';
+        loadNotes();
       }
     });
   }
@@ -976,61 +1122,138 @@ const Apps = (() => {
       { t: 'sys', v: '║  NEXUS OS TERMINAL — COMANDOS    ║' },
       { t: 'sys', v: '╚══════════════════════════════════╝' },
       { t: 'resp', v: '  help       — Lista de comandos' },
-      { t: 'resp', v: '  whoami     — Identidade do agente' },
-      { t: 'resp', v: '  status     — Estado do sistema' },
-      { t: 'resp', v: '  scan       — Varredura de ameaças' },
-      { t: 'resp', v: '  date       — Data in-universe' },
+      { t: 'resp', v: '  whoami     — Identidade do agente (Real-time)' },
+      { t: 'resp', v: '  status     — Estado do sistema e hardware' },
+      { t: 'resp', v: '  scan       — Varredura profunda de ameaças' },
+      { t: 'resp', v: '  date       — Data in-universe e era atual' },
       { t: 'resp', v: '  lore       — Arquivo de lore da O.R.T.' },
-      { t: 'resp', v: '  decrypt    — Tentativa de descriptografia' },
-      { t: 'resp', v: '  clear      — Limpar terminal' },
-      { t: 'resp', v: '  logout     — Encerrar sessão' },
+      { t: 'resp', v: '  decrypt    — Tentar quebrar criptografia OMEGA' },
+      { t: 'resp', v: '  hack       — Tentativa de acesso não autorizado' },
+      { t: 'resp', v: '  sysinfo    — Informações detalhadas do hardware' },
+      { t: 'resp', v: '  netscan    — Listar dispositivos na rede local' },
+      { t: 'resp', v: '  probe      — Enviar sonda para o setor atual' },
+      { t: 'resp', v: '  trace      — Rastrear origem de sinal fantasma' },
+      { t: 'resp', v: '  archives   — Acessar registros históricos' },
+      { t: 'resp', v: '  clear      — Limpar buffer do terminal' },
+      { t: 'resp', v: '  logout     — Encerrar sessão atual' },
     ],
-    whoami: () => {
-      const p = Auth.getProfile();
+    whoami: async () => {
+      // Correção: Buscando do banco para ser em tempo real
+      const db = Auth.db();
+      let p = Auth.getProfile();
+      if (db) {
+        const { data } = await db.from('profiles').select('*').eq('id', Auth.getUser()?.id).single();
+        if (data) p = data;
+      }
       return [
+        { t: 'sys', v: '[RETRIEVING AGENT DATA...]' },
         { t: 'resp', v: `AGENTE: ${p?.display_name || p?.username || 'DESCONHECIDO'}` },
         { t: 'resp', v: `CLEARANCE: ${(p?.role || 'N/A').toUpperCase()}` },
+        { t: 'resp', v: `CRÉDITOS: CR$ ${p?.credits?.toLocaleString('pt-BR') || 0}` },
+        { t: 'sys', v: '--- ATRIBUTOS ---' },
+        { t: 'resp', v: `  FOR: ${p?.str || 10} | DES: ${p?.dex || 10} | CON: ${p?.con || 10}` },
+        { t: 'resp', v: `  INT: ${p?.int || 10} | SAB: ${p?.wis || 10} | ESP: ${p?.spi || 10}` },
+        { t: 'sys', v: '-----------------' },
         { t: 'resp', v: `ID: ${p?.id || 'N/A'}` },
         { t: 'resp', v: 'ORGANIZAÇÃO: O.R.T. — Ordem da Realidade e Tempo' },
       ];
     },
+    hack: () => [
+      { t: 'err', v: '[ERRO] Tentativa de invasão detectada pela I.A. Chronos.' },
+      { t: 'err', v: 'Acesso negado. Seu IP foi marcado para exclusão temporal.' },
+    ],
+    sysinfo: () => [
+      { t: 'sys', v: 'NEXUS OS v7.3.1 (LTS)' },
+      { t: 'resp', v: 'Uptime: 1542h 12m' },
+      { t: 'resp', v: 'Memory: 128.4 ZB / 1024 ZB' },
+      { t: 'resp', v: 'CPU: Quantum Core x64 (98% Efficiency)' },
+    ],
+    netscan: () => [
+      { t: 'sys', v: '[SCANNING LOCAL NETWORK...]' },
+      { t: 'resp', v: '  192.168.0.1  — CHRONOS AI (GATEWAY) [ENCRYPTED]' },
+      { t: 'resp', v: '  192.168.0.45 — AGENT_TERMINAL (YOU)' },
+      { t: 'resp', v: '  192.168.0.12 — NEXUS_SERVER_01 [STABLE]' },
+      { t: 'err', v: '  ???.???.?.?? — UNKNOWN_ENTITY [SIGNAL_JAMMED]' },
+    ],
+    probe: async () => {
+      const o = $('terminal-output');
+      addTermLine(o, '[PROBE] Lançando sonda de reconhecimento...', 'sys');
+      await new Promise(r => setTimeout(r, 1000));
+      addTermLine(o, '[PROBE] Sonda entrou no hiperespaço...', 'sys');
+      await new Promise(r => setTimeout(r, 1500));
+      return [
+        { t: 'resp', v: 'STATUS: Sonda destruída por interferência anômala.' },
+        { t: 'err', v: 'LOG: Radiação Gamma fora da escala detectada.' }
+      ];
+    },
+    trace: () => [
+      { t: 'sys', v: '[TRACING SIGNAL...]' },
+      { t: 'resp', v: 'Origem: Setor Desconhecido (Cinturão de Órion)' },
+      { t: 'resp', v: 'Intensidade: 4.5 dB (Decaindo)' },
+      { t: 'resp', v: 'Assinatura: Não humana.' },
+    ],
+    archives: () => [
+      { t: 'sys', v: '[ARCHIVES] ACESSANDO ARQUIVO MORTO...' },
+      { t: 'resp', v: '3532: Primeiro salto temporal bem sucedido.' },
+      { t: 'resp', v: '3545: A Grande Crise das Linhas de Tempo.' },
+      { t: 'resp', v: '3575: Fundação da O.R.T. sob o Tratado de Gênesis.' },
+    ],
     status: () => [
-      { t: 'sys', v: '[NEXUS OS] STATUS DO SISTEMA:' },
+      { t: 'sys', v: '[NEXUS OS] STATUS DO SISTEMA v7.3.1:' },
       { t: 'resp', v: '  KERNEL........... ONLINE' },
+      { t: 'resp', v: '  SINCRO O.R.T...... ATIVA' },
       { t: 'resp', v: '  SUPABASE DB....... ' + (Auth.db() ? 'CONECTADO' : 'MODO DEMO') },
       { t: 'resp', v: '  CLOUDINARY........ ' + (NEXUS_CONFIG.cloudinary.cloudName !== 'YOUR_CLOUDINARY_CLOUD_NAME' ? 'CONFIGURADO' : 'NÃO CONFIGURADO') },
-      { t: 'resp', v: '  CRT DISPLAY....... ATIVO' },
-      { t: 'resp', v: '  AMEAÇAS........... NENHUMA DETECTADA' },
+      { t: 'resp', v: '  CRT DISPLAY....... EMULAÇÃO ATIVA' },
+      { t: 'resp', v: '  AMEAÇAS........... 0 DETECTADAS (SCAN RECOMENDADO)' },
     ],
-    scan: () => [
-      { t: 'sys', v: '[SCAN] Iniciando varredura de ameaças...' },
-      { t: 'resp', v: '  Setor A-7......... LIMPO' },
-      { t: 'resp', v: '  Setor B-3......... LIMPO' },
-      { t: 'resp', v: '  Setor OMEGA....... ⚠ ANOMALIA DETECTADA' },
-      { t: 'err', v: '  [ALERTA] Assinatura temporal não identificada em setor OMEGA.' },
-      { t: 'resp', v: '  Relatório enviado para Diretor Valdris.' },
-    ],
+    scan: async () => {
+      const output = $('terminal-output');
+      addTermLine(output, '[SCAN] Iniciando varredura de frequências anômalas...', 'sys');
+      await new Promise(r => setTimeout(r, 800));
+      addTermLine(output, '[SCAN] Acessando Satélites de Vigilância Chronos...', 'sys');
+      await new Promise(r => setTimeout(r, 1200));
+      addTermLine(output, '[SCAN] Analisando integridade do Setor OMEGA-7...', 'sys');
+      await new Promise(r => setTimeout(r, 1000));
+
+      return [
+        { t: 'resp', v: '  Núcleo Central..... ESTÁVEL' },
+        { t: 'resp', v: '  Malha Temporal..... 99.8% INTEGRAL' },
+        { t: 'resp', v: '  Assinaturas Externas... DETECTADAS' },
+        { t: 'err', v: '  [ALERTA] Inconsistência de dados detectada em: VALE CINZENTO.' },
+        { t: 'sys', v: '  Varredura concluída. Log arquivado sob protocolo S-32.' },
+      ];
+    },
     date: () => {
       const d = typeof UNIVERSE_DATE !== 'undefined' ? UNIVERSE_DATE : { format: () => '??/??/????' };
       return [
         { t: 'resp', v: `DATA IN-UNIVERSE: ${d.format()}` },
-        { t: 'resp', v: `ERA: ${d.era || 'N/A'} — ${d.cycle || 'N/A'}` },
-        { t: 'resp', v: `DATA REAL: ${new Date().toLocaleDateString('pt-BR')}` },
+        { t: 'resp', v: `ERA: ${d.era || 'Eras da Consolidação'}` },
+        { t: 'resp', v: `DATA REAL: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString()}` },
       ];
     },
     lore: () => [
-      { t: 'sys', v: '[ARQUIVO O.R.T.] — INTEL CLASSIFICADO:' },
-      { t: 'resp', v: '"A Ordem existe desde antes da história registrada."' },
-      { t: 'resp', v: '"Controlamos o que o público acredita ser real."' },
-      { t: 'resp', v: '"O tempo é uma ferramenta, não uma lei." — Dir. Fundador' },
-      { t: 'err', v: '[CLASSIFICADO] Acesso adicional requer CLEARANCE OMEGA.' },
+      { t: 'sys', v: '[ARQUIVO O.R.T.] — HISTÓRIA OCULTA:' },
+      { t: 'resp', v: '"A Ordem protege a linha lógica que chamamos de realidade."' },
+      { t: 'resp', v: '"Sem nós, o tempo seria uma sucessão de caos absoluto."' },
+      { t: 'resp', v: '"O sacrifício dos Agentes é o preço da estabilidade espacial."' },
+      { t: 'err', v: '[CLASSIFICADO] Acesso adicional requer nível OMEGA-5.' },
     ],
-    decrypt: () => [
-      { t: 'sys', v: '[DECRYPT] Iniciando descriptografia...' },
-      { t: 'resp', v: '  Protocolo AES-512... AGUARDANDO CHAVE' },
-      { t: 'err', v: '  ERRO: Chave não fornecida. Acesso negado.' },
-      { t: 'resp', v: '  Tente: decrypt [CHAVE]' },
-    ],
+    decrypt: (args) => {
+      const key = args.split(' ')[1];
+      if (!key) return [{ t: 'err', v: 'ERRO: Sintaxe incorreta. Use: decrypt [CHAVE]' }];
+      if (key === 'nexus123' || key === 'omega') {
+        return [
+          { t: 'sys', v: '[DECRYPT] Chave válida!' },
+          { t: 'resp', v: '  DESBLOQUEANDO DADOS... 100%' },
+          { t: 'resp', v: '  MENSAGEM: "O Vazio está voltando. Estejam prontos."' }
+        ];
+      }
+      return [
+        { t: 'sys', v: `[DECRYPT] Tentando chave: ${key}...` },
+        { t: 'err', v: '  FALHA NA DESCRIPTOGRAFIA: Chave inválida.' }
+      ];
+    },
     logout: () => { Auth.logout(); return []; },
     clear: () => 'CLEAR',
   };
@@ -1040,22 +1263,25 @@ const Apps = (() => {
     const output = $('terminal-output');
     if (!input || !output) return;
     input.focus();
-    input.addEventListener('keydown', e => {
+    input.addEventListener('keydown', async e => {
       if (e.key !== 'Enter') return;
-      const cmd = input.value.trim().toLowerCase();
+      const cmdStr = input.value.trim();
+      const cmd = cmdStr.toLowerCase();
       input.value = '';
-      if (!cmd) return;
+      if (!cmdStr) return;
+
       Boot.playBeep(660, 0.03, 0.06);
-      // Print command
-      addTermLine(output, `ORT@NEXUS:~$ ${cmd}`, 'cmd');
-      // Run command
-      const handler = TERMINAL_COMMANDS[cmd.split(' ')[0]];
+      addTermLine(output, `ORT@NEXUS:~$ ${cmdStr}`, 'cmd');
+
+      const parts = cmd.split(' ');
+      const handler = TERMINAL_COMMANDS[parts[0]];
+
       if (handler) {
-        const result = handler(cmd);
+        const result = await handler(cmdStr);
         if (result === 'CLEAR') { output.innerHTML = ''; return; }
         if (Array.isArray(result)) result.forEach(r => addTermLine(output, r.v, r.t));
       } else {
-        addTermLine(output, `Comando não encontrado: '${cmd}'. Digite 'help'.`, 'err');
+        addTermLine(output, `Comando não encontrado: '${parts[0]}'. Digite 'help'.`, 'err');
       }
       output.scrollTop = output.scrollHeight;
     });
@@ -1144,6 +1370,8 @@ const Apps = (() => {
                <option value="legendary">LENDÁRIO</option>
             </select>
           </div>
+          <div class="login-field"><label class="login-label">TIPO TÉCNICO</label><input type="text" id="it-technical-type" placeholder="Ex: Espada de Energia"></div>
+          <div class="login-field"><label class="login-label">DADO DE DANO/EFEITO</label><input type="text" id="it-dice" placeholder="Ex: 1d8 + 4"></div>
           <div class="login-field" style="grid-column: span 2;"><label class="login-label">DESCRIÇÃO</label><input type="text" id="it-desc"></div>
           <div class="login-field" id="it-content-field" style="grid-column: span 2; display:none;"><label class="login-label">CONTEÚDO (PARA DOCUMENTOS)</label><textarea id="it-content" rows="3" style="width:100%; background:rgba(0,0,0,0.3); color:var(--green); border:1px solid var(--border-dim); font-family:var(--font-code);"></textarea></div>
           <div style="grid-column: span 2;"><label style="color:var(--green-mid); font-size:12px;"><input type="checkbox" id="it-loot"> DISPONÍVEL COMO LOOT DE MISSÃO</label></div>
@@ -1190,14 +1418,14 @@ const Apps = (() => {
                      <div class="stat-label">SANIDADE (-1 a 5)</div>
                      <div style="display:flex; gap:10px; margin-top:5px;">
                         <input type="number" id="san-amount" value="5" min="-1" max="5" style="width:60px;">
-                        <button class="btn" onclick="Apps.updateStat('${_selectedCombatId}', 'sanity_current', parseInt($('san-amount').value))">[ DEFINIR ]</button>
+                        <button class="btn" onclick="Apps.applyCombatAction('sanity')">[ DEFINIR ]</button>
                      </div>
                   </div>
                   <div>
                      <div class="stat-label">EXPOSIÇÃO MENTAL (0-100%)</div>
                      <div style="display:flex; gap:10px; margin-top:5px;">
                         <input type="number" id="exp-amount" value="0" min="0" max="100" style="width:60px;">
-                        <button class="btn" onclick="Apps.updateStat('${_selectedCombatId}', 'mental_exposure', parseInt($('exp-amount').value))">[ DEFINIR % ]</button>
+                        <button class="btn" onclick="Apps.applyCombatAction('exposure')">[ DEFINIR % ]</button>
                      </div>
                   </div>
                </div>
@@ -1323,6 +1551,8 @@ const Apps = (() => {
     const price = parseInt($('it-price').value) || 0;
     const isLoot = $('it-loot').checked;
     const content = $('it-content').value;
+    const itemType = $('it-technical-type').value;
+    const damageDice = $('it-dice').value;
 
     if (!name) return;
 
@@ -1330,7 +1560,15 @@ const Apps = (() => {
     if (!db) return;
 
     const { error } = await db.from('store_items').insert({
-      name, description: desc, category: cat, rarity: rare, price, is_loot: isLoot, content
+      name,
+      description: desc,
+      category: cat,
+      rarity: rare,
+      price,
+      is_loot: isLoot,
+      content,
+      item_type: itemType,
+      damage_dice: damageDice
     });
 
     if (!error) {
@@ -1346,10 +1584,11 @@ const Apps = (() => {
     const { data } = await db.from('store_items').select('*').order('created_at', { ascending: false });
 
     list.innerHTML = data?.map(item => `
-      <div style="background:rgba(0,30,0,0.4); border:1px solid var(--border-dim); padding:10px; font-size:11px;">
+      <div style="background:rgba(0,30,0,0.4); border:1px solid var(--border-dim); padding:10px; font-size:11px; display:flex; flex-direction:column; gap:4px;">
          <div style="color:var(--green); font-weight:bold;">${item.name}</div>
          <div style="color:var(--amber);">CR$ ${item.price} - ${item.category}</div>
-         <button class="btn btn-danger" style="font-size:9px; margin-top:5px;" onclick="Apps.deleteItem('${item.id}')">[ APAGAR ]</button>
+         ${item.damage_dice ? `<div style="color:var(--red-alert); font-size:9px;">DANO: ${item.damage_dice}</div>` : ''}
+         <button class="btn btn-action-danger" style="font-size:9px; margin-top:5px;" onclick="Apps.deleteItem('${item.id}')">[ APAGAR ]</button>
       </div>
     `).join('') || '';
   }
@@ -1424,9 +1663,16 @@ const Apps = (() => {
       updates.sp_current = Math.max(0, (u.sp_current || 0) - amount);
     } else if (type === 'restore') {
       updates.sp_current = Math.min(u.sp_max, (u.sp_current || 0) + amount);
+    } else if (type === 'sanity') {
+      const sanVal = parseInt($('san-amount').value);
+      updates.sanity_current = sanVal;
+    } else if (type === 'exposure') {
+      const expVal = parseInt($('exp-amount').value);
+      updates.mental_exposure = expVal;
     }
 
     await db.from('profiles').update(updates).eq('id', _selectedCombatId);
+    showNotification('SINCRO RPG', `Status de ${u.display_name} atualizado via Mestre de Combate.`, 'success');
     loadCombatAgents();
   }
 
@@ -1491,19 +1737,18 @@ const Apps = (() => {
 
   /* ── Modais Internos (Substitutos para alert/confirm) ── */
   function showModal(options = {}) {
-    // options: { title, body, confirmText, cancelText, onConfirm, onCancel, type: 'alert'|'confirm' }
     const overlay = document.createElement('div');
-    overlay.className = 'app-overlay active';
-    overlay.style.zIndex = '3000000'; // Maior que as janelas e notificações
+    overlay.className = 'app-overlay modal-overlay-active';
+    // z-index is handled by CSS class now
 
     const isConfirm = options.type === 'confirm';
 
     overlay.innerHTML = `
-      <div class="modal-box scan-effect" style="width:min(450px, 90vw); border:1px solid var(--green); box-shadow:0 0 30px var(--green-glow);">
-        <div class="modal-header" style="background:var(--green); color:var(--bg); border:none; padding:8px 12px; font-family:var(--font-logo);">
+      <div class="modal-box scan-effect" style="width:min(450px, 90vw);">
+        <div class="modal-header">
           > ${options.title || 'SISTEMA O.R.T.'}
         </div>
-        <div class="modal-body" style="padding:20px; font-family:var(--font-code); color:var(--green); font-size:15px; line-height:1.6;">
+        <div class="modal-body">
           ${options.body || ''}
         </div>
         <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:12px; padding:12px;">
@@ -1534,12 +1779,18 @@ const Apps = (() => {
   ══════════════════════════════════════════════════════════ */
   function chat() {
     return `
-      <div style="display:grid; grid-template-rows:1fr auto; height:100%; gap:0; background:rgba(0,15,0,0.3);">
-        <div id="chat-messages-container" style="flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:8px;">
-          <div class="loading-state">CONECTANDO AO CANAL OMEGA<span class="loading-dots"></span></div>
+      <div style="display:grid; grid-template-rows:auto 1fr auto; height:100%; gap:0; background:rgba(0,10,0,0.4);">
+        <div style="background:rgba(0,255,65,0.05); border-bottom:1px solid var(--border-dim); padding:8px 12px; display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-family:var(--font-code); font-size:11px; color:var(--green-mid); letter-spacing:1px;">CANAL OMEGA — PROTOCOLO S-32 ATIVO</span>
+          <span style="font-family:var(--font-code); font-size:11px; color:var(--green); display:flex; align-items:center; gap:6px;">
+            <span style="width:6px; height:6px; background:var(--green); border-radius:50%; box-shadow:0 0 8px var(--green);"></span> LIVE
+          </span>
+        </div>
+        <div id="chat-messages-container" style="flex:1; overflow-y:auto; padding:15px; display:flex; flex-direction:column; gap:10px; scrollbar-width:thin;">
+          <div class="loading-state">SINCRONIZANDO COM A REDE<span class="loading-dots"></span></div>
         </div>
         <div class="app-toolbar" style="border-top:1px solid var(--border-dim); padding:10px; display:flex; gap:10px; align-items:center;">
-          <input type="text" id="chat-input" autocomplete="off" placeholder="Digite sua mensagem classificada..." 
+          <input type="text" id="chat-input" autocomplete="off" placeholder="Segurança Máxima Ativa. Digite aqui..." 
             style="flex:1; background:rgba(0,40,0,0.4); border:1px solid var(--border-dim); color:var(--green); padding:10px; font-family:var(--font-code); outline:none;">
           <button class="btn" id="btn-chat-send" style="padding:10px 20px;">[ ENVIAR ]</button>
         </div>
@@ -1596,18 +1847,22 @@ const Apps = (() => {
     if (container.querySelector('.loading-state')) container.innerHTML = '';
 
     const isMe = msg.sender_id === Auth.getUser()?.id;
-    const senderName = msg.profiles?.display_name || msg.profiles?.username || 'AGENTE';
+    const senderName = isMe ? 'VOCÊ' : (msg.profiles?.display_name || msg.profiles?.username || 'AGENTE');
 
     const msgEl = document.createElement('div');
-    msgEl.style.cssText = `max-width:80%; padding:8px 12px; border:1px solid var(--border-dim); font-family:var(--font-code); margin-bottom:4px; 
-      ${isMe ? 'align-self:flex-end; background:rgba(0,100,0,0.1); border-color:var(--green);' : 'align-self:flex-start; background:rgba(255,183,0,0.05);'}`;
+    msgEl.style.cssText = `max-width:85%; padding:10px 14px; border:1px solid var(--border-dim); font-family:var(--font-code); margin-bottom:6px; position:relative;
+      ${isMe ? 'align-self:flex-end; background:rgba(0,255,65,0.08); border-color:var(--green); border-right:4px solid var(--green);' : 'align-self:flex-start; background:rgba(255,183,0,0.05); border-left:4px solid var(--amber);'}`;
+
+    const timestamp = msg.created_at ? new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'AGORA';
 
     msgEl.innerHTML = `
-      <div style="font-size:10px; color:${msg.profiles?.role === 'admin' ? 'var(--amber)' : 'var(--green-mid)'}; margin-bottom:4px; text-transform:uppercase;">
-        ${senderName} [${msg.profiles?.role || 'AGENTE'}]
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; gap:20px;">
+        <span style="font-size:10px; color:${isMe ? 'var(--green)' : 'var(--amber)'}; font-weight:bold; letter-spacing:1px;">
+          ${senderName} ${msg.profiles?.role ? `[${msg.profiles.role.toUpperCase()}]` : ''}
+        </span>
+        <span style="font-size:9px; color:var(--green-dark);">${timestamp}</span>
       </div>
-      <div style="color:var(--green); font-size:14px; word-break:break-word;">${msg.text}</div>
-      <div style="font-size:9px; color:var(--green-dark); text-align:right; margin-top:4px;">${new Date(msg.created_at).toLocaleTimeString('pt-BR')}</div>
+      <div style="color:var(--green); font-size:14px; word-break:break-word; line-height:1.4;">${msg.text}</div>
     `;
 
     container.appendChild(msgEl);
@@ -1622,15 +1877,43 @@ const Apps = (() => {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, async payload => {
         const { data } = await db.from('profiles').select('display_name, username, role').eq('id', payload.new.sender_id).single();
         const msg = { ...payload.new, profiles: data };
+        const container = $('chat-messages-container');
 
-        // Só tenta adicionar à UI se o contêiner existir (app aberto)
-        appendChatMessage(msg);
+        if (container) {
+          appendChatMessage(msg);
+        }
 
         // Notificação global (independente do app estar aberto)
         const currentUserId = Auth.getUser()?.id;
         if (payload.new.sender_id !== currentUserId) {
           showNotification('CHAT O.R.T.', `${data?.display_name || 'AGENTE'}: ${payload.new.text}`, 'new-message');
           Desktop.updateBadge('chat', 1, true);
+        }
+      })
+      .subscribe();
+  }
+
+  function subscribeEmails() {
+    const db = Auth.db();
+    if (!db) return;
+
+    db.channel('public:emails')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'emails' }, payload => {
+        const email = payload.new;
+        const profile = Auth.getProfile();
+        const userId = Auth.getUser()?.id;
+        const isAdmin = profile?.role === 'admin';
+
+        // Evitar auto-notificação
+        if (email.sender_id === userId) return;
+
+        // Notificar se for público ou especificamente para mim (ou se eu for admin)
+        const isAll = email.recipient === 'all' || email.recipient_id === 'all' || !email.recipient_id;
+        const isForMe = email.recipient_id === userId;
+
+        if (isAll || isForMe || isAdmin) {
+          showNotification('NOVA COMUNICAÇÃO', `DE: ${email.sender}<br>ASSUNTO: ${email.subject}`, 'new-email');
+          Desktop.updateBadge('emails', 1, true);
         }
       })
       .subscribe();
@@ -1687,18 +1970,46 @@ const Apps = (() => {
     }
 
     grid.innerHTML = data.map(item => `
-      <div class="shop-card scan-effect" style="background:rgba(0,30,0,0.4); border:1px solid var(--border-dim); padding:15px; display:flex; flex-direction:column; gap:10px;">
-        <div style="height:120px; background:rgba(0,255,65,0.05); display:flex; align-items:center; justify-content:center; border:1px solid rgba(0,255,65,0.1);">
-          <span style="font-size:30px;">${item.type === 'weapon' ? '🔫' : '🛡️'}</span>
+      <div class="shop-card scan-effect" onclick="Apps.showItemDetails(${JSON.stringify(item).replace(/"/g, '&quot;')})">
+        <div class="shop-card-icon">
+          ${item.category === 'weapon' ? '🔫' : (item.category === 'armor' ? '🛡️' : '📦')}
         </div>
-        <div style="font-family:var(--font-logo); font-size:14px; color:var(--green);">${item.name}</div>
-        <div style="font-family:var(--font-code); font-size:11px; color:var(--green-mid); flex:1;">${item.description || ''}</div>
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:5px;">
-          <span style="color:var(--amber); font-family:var(--font-code);">CR$ ${item.price}</span>
-          <button class="btn" style="font-size:10px; padding:4px 8px;" onclick="Apps.buyItem('${item.id}', ${item.price})">[ COMPRAR ]</button>
+        <div class="shop-card-title">${item.name}</div>
+        <div class="shop-card-desc">${item.description || ''}</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:5px; gap:10px;">
+          <span style="color:var(--amber); font-family:var(--font-code); font-size:14px;">CR$ ${item.price.toLocaleString('pt-BR')}</span>
+          <button class="btn" style="font-size:10px; padding:6px 12px; flex-shrink:0;" onclick="event.stopPropagation(); Apps.buyItem('${item.id}', ${item.price})">[ COMPRAR ]</button>
         </div>
       </div>
     `).join('');
+  }
+
+  function showItemDetails(item) {
+    const m = $('modal-item-details');
+    if (!m) return;
+
+    $('item-detail-icon').textContent = item.category === 'weapon' ? '🔫' : (item.category === 'armor' ? '🛡️' : '📦');
+    $('item-detail-name').textContent = item.name;
+    $('item-detail-type').textContent = item.item_type || item.category.toUpperCase();
+
+    const dmgCont = $('item-detail-damage-cont');
+    if (item.damage_dice) {
+      dmgCont.style.display = 'block';
+      $('item-detail-damage').textContent = item.damage_dice;
+    } else {
+      dmgCont.style.display = 'none';
+    }
+
+    $('item-detail-desc').textContent = item.description || 'Nenhuma especificação técnica disponível.';
+    $('item-detail-price').textContent = `PREÇO: CR$ ${item.price.toLocaleString('pt-BR')}`;
+
+    const buyBtn = $('btn-buy-from-detail');
+    buyBtn.onclick = () => {
+      m.classList.add('hidden');
+      buyItem(item.id, item.price);
+    };
+
+    m.classList.remove('hidden');
   }
 
   async function buyItem(id, price) {
@@ -1745,8 +2056,29 @@ const Apps = (() => {
   }
 
   function initGlobalRealtime() {
-    initEmailRealtime();
+    subscribeEmails();
     subscribeChat();
+    subscribeStoreItems();
+  }
+
+  function subscribeStoreItems() {
+    const db = Auth.db();
+    if (!db) return;
+
+    db.channel('public:store_items')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'store_items' }, payload => {
+        const item = payload.new;
+        // Notifica todos os agentes sobre o novo item
+        showNotification('NOVO ITEM NO ARMAZÉM', `${item.name} foi adicionado ao estoque.`, 'new-item');
+        Boot.playBeep(880, 0.05, 0.15);
+
+        // Exibe o pop-up de detalhes automaticamente (como o bug anterior, mas intencional)
+        showItemDetails(item);
+
+        // Atualiza a loja se estiver aberta
+        if (document.getElementById('shop-grid')) loadShopItems();
+      })
+      .subscribe();
   }
 
   /* ══════════════════════════════════════════════════════════
@@ -1755,50 +2087,56 @@ const Apps = (() => {
   function statsPage() {
     return `
       <div class="stats-page-container" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); height:100%; overflow-y:auto; background:rgba(0,20,0,0.3); scrollbar-width: thin;">
-        <div style="border-right:1px solid var(--border-dim); border-bottom:1px solid var(--border-dim); padding:20px; display:flex; flex-direction:column; gap:20px;">
-          <div class="body-status-visual scan-effect" style="position:relative; overflow:hidden; border:1px solid var(--border-dim); background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; padding:10px;">
-             <svg viewBox="0 0 100 100" style="width:100%; height:100%; filter: drop-shadow(0 0 10px var(--green-glow));">
+        <div style="border-right:1px solid var(--border-dim); border-bottom:1px solid var(--border-dim); padding:20px; display:flex; flex-direction:column; gap:20px; align-items:center;">
+          
+          <!-- MUGSHOT SYSTEM -->
+          <div class="mugshot-container" onclick="Apps.openMugshotUpload()">
+             <img id="stats-mugshot-img" class="mugshot-img" alt="Mugshot">
+             <div id="stats-mugshot-placeholder" class="mugshot-placeholder">?</div>
+             <div class="mugshot-upload-overlay">[ ALTERAR ARTE ]</div>
+          </div>
+
+          <div class="body-status-visual scan-effect" style="position:relative; overflow:hidden; border:1px solid var(--border-dim); background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; padding:10px; height:200px; width:200px;">
+             <svg viewBox="0 0 100 100" style="width:100%; height:100%; aspect-ratio: 1/1; filter: drop-shadow(0 0 10px var(--green-glow));">
                 <defs>
                    <clipPath id="brain-clip">
-                      <path d="M25,55 C20,50 15,40 20,25 C25,10 45,5 65,15 C85,25 90,45 85,60 C80,75 70,85 55,85 C50,85 45,80 40,80 C35,80 30,85 25,85 C20,85 18,75 25,70 C22,65 25,60 25,55 Z" />
+                      <path d="M50,10 Q85,10 90,45 Q90,85 50,90 Q10,85 10,45 Q15,10 50,10 Z" />
                    </clipPath>
-                   <radialGradient id="mist-gradient" cx="50%" cy="50%" r="50%">
-                      <stop offset="0%" stop-color="#a000ff" stop-opacity="0.8" />
-                      <stop offset="100%" stop-color="#400080" stop-opacity="0" />
-                   </radialGradient>
+                    <radialGradient id="mist-gradient" cx="50%" cy="50%" r="70%">
+                       <stop offset="0%" stop-color="#9d00ff" stop-opacity="0.95" />
+                       <stop offset="60%" stop-color="#7a00cc" stop-opacity="0.5" />
+                       <stop offset="100%" stop-color="#4b0082" stop-opacity="0" />
+                    </radialGradient>
+                    <filter id="mist-noise-filter">
+                       <feTurbulence type="fractalNoise" baseFrequency="0.1" numOctaves="3" result="noise" />
+                       <feDisplacementMap in="SourceGraphic" in2="noise" scale="8" />
+                    </filter>
                 </defs>
-                <g transform="rotate(-90 50 50)">
-                   <!-- Fundo do Cérebro (Visão Lateral) -->
-                   <path d="M25,55 C20,50 15,40 20,25 C25,10 45,5 65,15 C85,25 90,45 85,60 C80,75 70,85 55,85 C50,85 45,80 40,80 C35,80 30,85 25,85 C20,85 18,75 25,70 C22,65 25,60 25,55 Z" 
+                <g>
+                   <path d="M50,10 Q85,10 90,45 Q90,85 50,90 Q10,85 10,45 Q15,10 50,10 Z" 
                          fill="rgba(0,255,65,0.05)" stroke="rgba(0,255,65,0.2)" stroke-width="1.5" />
                    
-                   <!-- Enchimento Líquido de Sanidade -->
-                   <rect id="sanity-brain-fill" x="0" y="100" width="100" height="0" fill="var(--green)" opacity="0.4" clip-path="url(#brain-clip)" style="transition: all 0.5s ease;" />
+                   <!-- Enchimento Líquido (Top-to-Bottom conforme solicitado) -->
+                   <rect id="sanity-brain-fill" x="0" y="0" width="100" height="0" fill="var(--green)" opacity="0.5" clip-path="url(#brain-clip)" style="transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);" />
                    
-                   <!-- Névoa de Exposição Mental -->
-                   <rect id="exposure-mist-rect" x="0" y="0" width="100" height="100" fill="url(#mist-gradient)" opacity="0" clip-path="url(#brain-clip)" style="transition: opacity 1s ease;">
-                      <animate attributeName="opacity" values="0.1;0.4;0.1" dur="4s" repeatCount="indefinite" />
-                   </rect>
+                   <rect id="exposure-mist-rect" x="0" y="0" width="100" height="100" fill="url(#mist-gradient)" clip-path="url(#brain-clip)" style="transition: opacity 1s ease, filter 1.5s ease; pointer-events: none; opacity: 0;" />
 
-                   <!-- Contorno Neon e Sulcos -->
-                   <path id="brain-contour" d="M25,55 C20,50 15,40 20,25 C25,10 45,5 65,15 C85,25 90,45 85,60 C80,75 70,85 55,85 C50,85 45,80 40,80 C35,80 30,85 25,85 C20,85 18,75 25,70 C22,65 25,60 25,55 Z" 
+                   <path id="brain-contour" d="M50,10 Q85,10 90,45 Q90,85 50,90 Q10,85 10,45 Q15,10 50,10 Z" 
                          fill="none" stroke="var(--green)" stroke-width="2" stroke-linecap="round">
-                      <animate id="brain-pulse-anim" attributeName="stroke-width" values="2;4;2" dur="1s" repeatCount="indefinite" begin="indefinite" />
+                      <animate id="brain-pulse-anim" attributeName="stroke-width" values="2;4;2" dur="1.2s" repeatCount="indefinite" />
                    </path>
                    
-                   <!-- Sulcos Anatômicos (Visão Lateral) -->
-                   <g stroke="var(--green-dark)" stroke-width="1" fill="none" opacity="0.4">
-                      <path d="M45,12 C55,25 50,45 40,55" /> <!-- Sulco Central -->
-                      <path d="M25,35 Q45,45 75,35" /> <!-- Sylvian Fissure -->
-                      <path d="M30,20 Q40,30 50,25" />
-                      <path d="M60,20 Q70,35 80,30" />
-                      <path d="M60,70 Q75,70 80,55" />
-                      <path d="M40,80 Q50,75 60,80" /> <!-- Cerebelo -->
+                   <g stroke="var(--green-dark)" stroke-width="1" fill="none" opacity="0.5">
+                      <path d="M50,10 L50,90" stroke-width="1.5" /> 
+                      <path d="M25,25 Q35,40 25,60" />
+                      <path d="M75,25 Q65,40 75,60" />
+                      <path d="M30,75 Q40,70 50,75" />
+                      <path d="M70,75 Q60,70 50,75" />
                    </g>
                 </g>
              </svg>
           </div>
-          <div id="stats-personal-info" style="font-family:var(--font-code); font-size:12px; line-height:1.6;">
+          <div id="stats-personal-info" style="font-family:var(--font-code); font-size:12px; line-height:1.6; width:100%;">
             <div style="color:var(--green-mid);">NOME: <span id="stat-name" style="color:var(--green);">---</span></div>
             <div style="color:var(--green-mid);">RAÇA: <span id="stat-race" style="color:var(--green);">---</span></div>
             <div style="color:var(--green-mid);">FUNÇÃO: <span id="stat-class" style="color:var(--green);">---</span></div>
@@ -1876,6 +2214,20 @@ const Apps = (() => {
 
     if (!profile) return;
 
+    // Atualizar Mugshot / Avatar
+    const mugImg = $('stats-mugshot-img');
+    const mugPlace = $('stats-mugshot-placeholder');
+    if (mugImg && mugPlace) {
+      if (profile.avatar_url) {
+        mugImg.src = profile.avatar_url;
+        mugImg.style.display = 'block';
+        mugPlace.style.display = 'none';
+      } else {
+        mugImg.style.display = 'none';
+        mugPlace.style.display = 'block';
+      }
+    }
+
     const v = id => { const el = $(id); if (el) el.textContent = profile[id.replace('stat-', '').replace('str', 'str').replace('dex', 'dex').replace('con', 'con').replace('int', 'int').replace('wis', 'wis').replace('spi', 'spi')]; };
 
     // Atualizar Campos Simples
@@ -1931,8 +2283,9 @@ const Apps = (() => {
 
       // Normalização da altura (Sempre baseado na sanidade positiva para o líquido)
       const pct = Math.max(0, Math.min(100, (sanity / sanityMax) * 100));
+      // Inversão: Preenchimento de cima para baixo (Top-to-Bottom)
       const h = (100 * pct) / 100;
-      brainFill.setAttribute('y', 100 - h);
+      brainFill.setAttribute('y', '0');
       brainFill.setAttribute('height', h);
 
       // Reset de animações e cores padrão
@@ -1969,9 +2322,54 @@ const Apps = (() => {
     const mist = $('exposure-mist-rect');
     if (mist) {
       const exposure = profile.mental_exposure || 0;
-      // Escala 0-100% mapeada para opacidade 0.0 a 0.7
-      mist.style.opacity = (exposure / 100) * 0.7;
+      // Escala 0-100% mapeada para opacidade 0.0 a 1.0
+      const opacity = exposure / 100;
+      mist.style.opacity = opacity;
+
+      // Filtros dinâmicos: Desfoque + Ruído Fractal
+      if (exposure > 10) {
+        const blurLevel = Math.max(0, (exposure - 10) / 15);
+        // Aplicar o filtro de ruído via SVG e desfoque via CSS
+        mist.style.filter = `url(#mist-noise-filter) blur(${blurLevel}px)`;
+      } else {
+        mist.style.filter = 'none';
+      }
     }
+  }
+
+  function openMugshotUpload() {
+    if (!NEXUS_CONFIG.cloudinary.cloudName || NEXUS_CONFIG.cloudinary.cloudName.includes('YOUR_')) {
+      showNotification('BLOQUEIO TÉCNICO', 'Cloudinary não configurado corretamente no js/config.js.', 'error');
+      return;
+    }
+
+    if (typeof cloudinary === 'undefined') {
+      showNotification('SISTEMA OFFLINE', 'Widget de upload não detectado.', 'error');
+      return;
+    }
+
+    const widget = cloudinary.createUploadWidget({
+      cloudName: NEXUS_CONFIG.cloudinary.cloudName,
+      uploadPreset: NEXUS_CONFIG.cloudinary.uploadPreset,
+      sources: ['local', 'url', 'camera'],
+      multiple: false,
+      cropping: true,
+      croppingAspectRatio: 1, // Quadrado
+      resourceType: 'image'
+    }, async (err, result) => {
+      if (!err && result.event === 'success') {
+        const url = result.info.secure_url;
+        const db = Auth.db();
+        if (db) {
+          const { error } = await db.from('profiles').update({ avatar_url: url }).eq('id', Auth.getUser()?.id);
+          if (!error) {
+            showNotification('MUGSHOT ATUALIZADO', 'Nova foto registrada no Mainframe.', 'success');
+            refreshStats(true);
+          }
+        }
+      }
+    });
+    widget.open();
   }
 
   /* ══════════════════════════════════════════════════════════
@@ -2046,40 +2444,15 @@ const Apps = (() => {
     }
   }
 
-  function initEmailRealtime() {
-    const db = Auth.db();
-    if (!db) return;
-
-    db.channel('public:emails')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'emails' }, payload => {
-        const email = payload.new;
-        const profile = Auth.getProfile();
-        const userId = Auth.getUser()?.id;
-        const isAdmin = profile?.role === 'admin';
-
-        // Evitar auto-notificação
-        if (email.sender_id === userId) return;
-
-        // Notificar se for público ou especificamente para mim (ou se eu for admin)
-        const isAll = email.recipient === 'all' || email.recipient_id === 'all' || !email.recipient_id;
-        const isForMe = email.recipient_id === userId;
-
-        if (isAll || isForMe || isAdmin) {
-          showNotification('NOVA COMUNICAÇÃO', `DE: ${email.sender}<br>ASSUNTO: ${email.subject}`, 'new-email');
-          Desktop.updateBadge('emails', 1, true);
-        }
-      })
-      .subscribe();
-  }
 
   return {
     render, init,
-    openLightbox, openEmail, deleteEmail,
+    openLightbox, editArtwork, deleteArtwork, openEmail, deleteEmail,
     updateMissionStatus, deleteMission, openBriefing,
     changeUserRole, deleteUser,
     showNotification, initGlobalRealtime,
     showModal, buyItem,
-    initInventory, initStats, initMap,
+    initInventory, initStats, initMap, openMugshotUpload,
     deleteItem, selectCombatTarget, applyCombatAction, updateStat, toggleEquip
   };
 

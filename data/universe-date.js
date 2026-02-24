@@ -17,6 +17,6 @@ const UNIVERSE_DATE = {
     },
 
     /** Lore extra — exibido no Calendário */
-    era: "Era da Consolidação",
+    era: "Era da Reconstrução",
     cycle: "Ciclo Omega"
 };

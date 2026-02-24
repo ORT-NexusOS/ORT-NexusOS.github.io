@@ -5,7 +5,6 @@
 
 const Desktop = (() => {
 
-    const $ = id => document.getElementById(id);
     let _activeWindows = new Set();
 
     // Listener global para tecla ESC
@@ -36,6 +35,7 @@ const Desktop = (() => {
         $('screen-desktop').classList.remove('hidden');
 
         updateWelcome(profile);
+        updateHeader(profile);
         startClock();
         setUniverseDate();
         renderIconGrid(profile);
@@ -283,6 +283,14 @@ const Desktop = (() => {
         }
     }
 
-    return { init, openApp, closeApp, updateBadge };
+    /* ── Header Update ───────────────────────────────────────── */
+    function updateHeader(profile) {
+        const uEl = $('header-username');
+        const cEl = $('header-clearance');
+        if (uEl) uEl.textContent = profile?.display_name || profile?.username || 'AGENTE';
+        if (cEl) cEl.textContent = (profile?.role || 'N/A').toUpperCase();
+    }
+
+    return { init, openApp, closeApp, updateBadge, updateHeader };
 
 })();

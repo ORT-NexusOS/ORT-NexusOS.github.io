@@ -95,6 +95,16 @@ CREATE TABLE IF NOT EXISTS timeline_events (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Notas Pessoais
+CREATE TABLE IF NOT EXISTS notes (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  content TEXT,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- ============================================================
 --  Row Level Security (RLS)
 -- ============================================================
@@ -128,6 +138,26 @@ CREATE POLICY "autenticados_inserir_timeline"    ON timeline_events FOR INSERT W
 CREATE POLICY "autenticados_atualizar_missions"  ON missions        FOR UPDATE USING (auth.role() = 'authenticated');
 CREATE POLICY "autenticados_atualizar_timeline"  ON timeline_events FOR UPDATE USING (auth.role() = 'authenticated');
 CREATE POLICY "autenticados_atualizar_profiles"  ON profiles        FOR UPDATE USING (auth.role() = 'authenticated');
+
+-- Políticas Notas
+CREATE POLICY "Users can view own notes" ON notes FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own notes" ON notes FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own notes" ON notes FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own notes" ON notes FOR DELETE USING (auth.uid() = user_id);
+
+-- ============================================================
+--  Realtime & Finalization
+-- ============================================================
+
+-- Habilitar Realtime para as tabelas necessárias
+begin;
+  drop publication if exists supabase_realtime;
+  create publication supabase_realtime;
+commit;
+
+alter publication supabase_realtime add table chat_messages;
+alter publication supabase_realtime add table emails;
+alter publication supabase_realtime add table store_items;
 
 -- ============================================================
 --  Fim do schema. Após rodar:

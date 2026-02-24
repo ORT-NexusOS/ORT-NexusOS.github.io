@@ -44,9 +44,9 @@ const GALAXY_DB = [
   { id: 'avernus', name: 'Avernus', region: 'Colônias Internas', rk: 'internas', angle: 28, ring: 3, desc: 'Um mundo vulcânico que gera energia geotérmica para dezenas de colônias.', cities: 'Caldeira, Geotérmica-9' },
   { id: 'agria', name: 'Agria', region: 'Colônias Internas', rk: 'internas', angle: 40, ring: 3, desc: 'Um "celeiro" da galáxia, coberto por campos de cultivo geneticamente modificados.', cities: 'Campo Dourado, Silo 17' },
   { id: 'oficio', name: 'Ofício', region: 'Colônias Internas', rk: 'internas', angle: 55, ring: 3, desc: 'Uma colônia de artesãos e engenheiros especializados, focada na produção de componentes de alta tecnologia.', cities: 'A Guilda, Cidadela da Precisão' },
-  { id: 'peladona', name: 'Peladona', region: 'Colônias Internas', rk: 'internas', angle: 345, ring: 3, desc: '', cities: '' },
-  { id: 'crisol_int', name: 'Crisol', region: 'Colônias Internas', rk: 'internas', angle: 10, ring: 3, desc: 'Um planeta geologicamente instável usado pelas corporações para testar e demonstrar novos armamentos para o mercado consumidor.', cities: 'Campo de Provas, Zona de Impacto' },
-  { id: 'concordia', name: 'Concordia', region: 'Colônias Internas', rk: 'internas', angle: 100, ring: 3, desc: 'Uma colônia padrão com ecossistema equilibrado, servindo como centro populacional para os trabalhadores das colônias vizinhas.', cities: 'Boa Vizinhança, Encruzilhada do Trabalhador' },
+  { id: 'peladona', name: 'Peladona', region: 'Colônias Internas', rk: 'internas', angle: 342, ring: 3, desc: 'Uma colônia desolada e rochosa, famosa por suas minas de quartzo e clima árido.', cities: 'Área 51 (Nexus), Quartzo City' },
+  { id: 'crisol_int', name: 'Crisol', region: 'Colônias Internas', rk: 'internas', angle: 12, ring: 3, desc: 'Um planeta geologicamente instável usado pelas corporações para testar e demonstrar novos armamentos para o mercado consumidor.', cities: 'Campo de Provas, Zona de Impacto' },
+  { id: 'concordia', name: 'Concordia', region: 'Colônias Internas', rk: 'internas', angle: 105, ring: 3, desc: 'Uma colônia padrão com ecossistema equilibrado, servindo como centro populacional para os trabalhadores das colônias vizinhas.', cities: 'Boa Vizinhança, Encruzilhada do Trabalhador' },
   { id: 'montshare', name: "Mont'share", region: 'Colônias Internas', rk: 'internas', angle: 110, ring: 3, desc: 'Uma colônia "normal", conhecida por sua topografia montanhosa e comunidades isoladas.', cities: 'Pico da Viúva, Vale do Eco' },
   { id: 'xessarsanctum', name: 'Xessar Sanctum', region: 'Colônias Internas', rk: 'internas', angle: 117, ring: 3, desc: 'Um mundo monástico que, apesar de tranquilo, é um grande produtor de vinhos e alimentos de luxo.', cities: 'O Vinhedo, Abadia da Colheita' },
   { id: 'axion', name: 'Axion', region: 'Colônias Internas', rk: 'internas', angle: 132, ring: 3, desc: 'Uma colônia normal e bem estabelecida, servindo como um centro administrativo para um aglomerado de mundos de produção.', cities: 'Marco Zero, Vigília do Governador' },
@@ -70,23 +70,23 @@ const GALAXY_DB = [
   { id: 'bastilha', name: 'Bastilha', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 48, ring: 4, desc: 'O principal ponto de comando da rede de defesa da fronteira. Um mundo-fortaleza com a maior das armas planetárias.', cities: 'Base Vanguarda, O Canhão Estelar' },
   { id: 'erebo', name: 'Érebo', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 58, ring: 4, desc: 'A base de escuta da fronteira. Sua arma planetária é, na verdade, um sensor de longo alcance disfarçado.', cities: 'Posto de Escuta Alfa, Base Sombra' },
   { id: 'genese', name: 'Gênese', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 68, ring: 4, desc: 'Uma base de suporte vital e terraformação, pesquisando formas de tornar mundos inóspitos habitáveis.', cities: 'Cúpula Botânica, Torre de Água' },
-  { id: 'belvaton', name: 'Belvaton VII', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 78, ring: 4, desc: 'Posto avançado na fronteira expansionista, servindo como ponto de observação e defesa do setor sul.', cities: 'Forte Meridional, Posto de Vigia' },
-  { id: 'zendar', name: 'Zendar', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 90, ring: 4, desc: 'O principal nexo de comunicações e criptografia da rede de defesa da fronteira, coordenando a frota e os dados de vigilância.', cities: 'Nexo Cripto, Torre de Transmissão Primus' },
-  { id: 'indomitus', name: 'Indomitus', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 101, ring: 4, desc: 'Uma reserva de caça militarizada. Um mundo de selva letal, usado como o campo de treinamento de sobrevivência final.', cities: 'Forte da Presa, Arena de Caça Z-9' },
-  { id: 'augure', name: 'Áugure', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 115, ring: 4, desc: 'Uma base de exploração avançada, focada em enviar missões para o Espaço Desconhecido e analisar dados.', cities: 'Base do Pioneiro, Hangar de Longo Alcance' },
-  { id: 'tartaro', name: 'Tártaro', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 140, ring: 4, desc: 'Um mundo-prisão de alta gravidade, onde os piores criminosos militares operam a arma de defesa planetária.', cities: 'Bloco Penitenciário Hades, Forja da Última Chance' },
+  { id: 'belvaton', name: 'Belvaton VII', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 65, ring: 4, desc: 'Posto avançado na fronteira expansionista, servindo como ponto de observação e defesa do setor sul.', cities: 'Forte Meridional, Posto de Vigia' },
+  { id: 'zendar', name: 'Zendar', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 110, ring: 4, desc: 'O principal nexo de comunicações e criptografia da rede de defesa da fronteira, coordenando a frota e os dados de vigilância.', cities: 'Nexo Cripto, Torre de Transmissão Primus' },
+  { id: 'indomitus', name: 'Indomitus', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 125, ring: 4, desc: 'Uma reserva de caça militarizada. Um mundo de selva letal, usado como o campo de treinamento de sobrevivência final.', cities: 'Forte da Presa, Arena de Caça Z-9' },
+  { id: 'augure', name: 'Áugure', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 135, ring: 4, desc: 'Uma base de exploration avançada, focada em enviar missões para o Espaço Desconhecido e analisar dados.', cities: 'Base do Pioneiro, Hangar de Longo Alcance' },
+  { id: 'tartaro', name: 'Tártaro', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 148, ring: 4, desc: 'Um mundo-prisão de alta gravidade, onde os piores criminosos militares operam a arma de defesa planetária.', cities: 'Bloco Penitenciário Hades, Forja da Última Chance' },
   { id: 'tlilhdul', name: 'Tlilhdul', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 157, ring: 4, desc: 'Um planeta morto em quarentena. Uma entidade primordial de 450 metros despertou e destruiu o antigo centro de clonagem. O Governo monitora a criatura de sua órbita.', cities: 'Plataforma Cérbero, Zona de Observação Titã' },
-  { id: 'severance', name: 'Severance', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 163, ring: 4, desc: 'A principal base de treinamento de fuzileiros navais da fronteira.', cities: 'Muro da Doutrina, Campo de Treinamento' },
+  { id: 'severance', name: 'Severance', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 168, ring: 4, desc: 'A principal base de treinamento de fuzileiros navais da fronteira.', cities: 'Muro da Doutrina, Campo de Treinamento' },
   { id: 'portao', name: 'Portão do Traidor', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 192, ring: 4, desc: 'Uma base de patrulha e interceptação, responsável por policiar os setores mais anárquicos da fronteira.', cities: 'Base do Executor, Angra do Corsário' },
   { id: 'auspex', name: 'Auspex', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 200, ring: 4, desc: 'Sede de uma base de inteligência de sinais (SIGINT), dedicada a monitorar o Espaço Desconhecido.', cities: 'Posto de Escuta Profunda, Cúpula do Silêncio' },
   { id: 'tithoul_mil', name: 'Tithoul (Naval)', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 225, ring: 4, desc: 'Uma base naval avançada, oculta na atmosfera densa de um gigante gasoso, servindo como ponto de reparo e reabastecimento.', cities: 'Doca Suspensa, Plataforma de Gás' },
   { id: 'forja', name: 'Forja de Omnith', region: 'Colônias Expansionistas', rk: 'expansionistas', angle: 240, ring: 4, desc: 'O principal planeta forja da galáxia. Especializado em produzir os metais mais resistentes, blindagens de naves de guerra e as colossais defesas planetárias.', cities: 'Arsenal Primus, A Grande Bigorna' },
 
   // VALE CINZENTO — usando coordenadas absolutas, DENTRO da elipse (440,660,rx=100,ry=88)
-  { id: 'anatema', name: 'Anátema', region: 'Vale Cinzento', rk: 'vale', ring: 0, angle: 0, absX: 437, absY: 598, desc: 'Um mundo onde a realidade foi permanentemente "rasgada". Uma anomalia dimensional estável paira em sua superfície, vigiada pela ORT Archive.', cities: 'Posto de Observação Proibido (órbita)' },
-  { id: 'terra', name: 'Terra', region: 'Vale Cinzento', rk: 'vale', ring: 0, angle: 0, absX: 462, absY: 644, desc: 'O mundo natal da humanidade, em uma rara "bolsa" de baixa atividade anômala dentro da Zona Morta. Sua sobrevivência é um mistério e sua posição, um segredo precário.', cities: 'São Paulo, Tóquio' },
-  { id: 'lamento', name: 'Lamento', region: 'Vale Cinzento', rk: 'vale', ring: 0, angle: 0, absX: 410, absY: 678, desc: 'Acredita-se ser o epicentro da praga psíquica usada na guerra antiga. Silencioso, mas sondas relatam um "eco" de sofrimento psíquico que enlouquece quem se aproxima.', cities: 'Ruínas de cidades-fantasma' },
-  { id: 'vossir', name: 'Vossir Sanctum', region: 'Vale Cinzento', rk: 'vale', ring: 0, angle: 0, absX: 445, absY: 718, desc: 'Um antigo mundo santuário da Grande Guerra, usado para adorar Deuses agora esquecidos. Todos que pisam aqui nunca voltam exatamente os mesmos.', cities: 'Basílica do Silêncio' },
+  { id: 'anatema', name: 'Anátema', region: 'Vale Cinzento', rk: 'vale', ring: 0, angle: 0, absX: 435, absY: 615, desc: 'Um mundo onde a realidade foi permanentemente "rasgada". Uma anomalia dimensional estável paira em sua superfície, vigiada pela ORT Archive.', cities: 'Posto de Observação Proibido (órbita)' },
+  { id: 'terra', name: 'Terra', region: 'Vale Cinzento', rk: 'vale', ring: 0, angle: 0, absX: 470, absY: 655, desc: 'O mundo natal da humanidade, em uma rara "bolsa" de baixa atividade anômala dentro da Zona Morta. Sua sobrevivência é um mistério e sua posição, um segredo precário.', cities: 'São Paulo, Tóquio' },
+  { id: 'lamento', name: 'Lamento', region: 'Vale Cinzento', rk: 'vale', ring: 0, angle: 0, absX: 415, absY: 675, desc: 'Acredita-se ser o epicentro da praga psíquica usada na guerra antiga. Silencioso, mas sondas relatam um "eco" de sofrimento psíquico que enlouquece quem se aproxima.', cities: 'Ruínas de cidades-fantasma' },
+  { id: 'vossir', name: 'Vossir Sanctum', region: 'Vale Cinzento', rk: 'vale', ring: 0, angle: 0, absX: 450, absY: 705, desc: 'Um antigo mundo santuário da Grande Guerra, usado para adorar Deuses agora esquecidos. Todos que pisam aqui nunca voltam exatamente os mesmos.', cities: 'Basílica do Silêncio' },
 ];
 
 // ── Cores por Região ─────────────────────────────────────────
@@ -316,9 +316,24 @@ function initMap() {
     text.setAttribute('fill', 'rgba(160,215,160,0.75)');
     text.setAttribute('font-size', '8.5');
     text.setAttribute('font-family', 'Share Tech Mono, monospace');
-    const lx = x > CX ? 5 : -(p.name.length * 4.5 + 5);
+
+    // Lógica de alinhamento inteligente (esquerda/direita) baseada na posição X central
+    const isRightSide = x > CX;
+    const isVertical = Math.abs(x - CX) < 40; // Se estiver muito centralizado verticalmente
+
+    let lx = 6;
+    let anchor = 'start';
+
+    if (isVertical) {
+      if (y < CY) { anchor = 'middle'; lx = 0; text.setAttribute('y', '-10'); } // Acima do centro: rótulo no topo
+      else { anchor = 'middle'; lx = 0; text.setAttribute('y', '15'); }  // Abaixo do centro: rótulo embaixo
+    } else if (!isRightSide) {
+      anchor = 'end';
+      lx = -6;
+    }
+
     text.setAttribute('x', lx.toFixed(1));
-    text.setAttribute('y', '3.5');
+    text.setAttribute('text-anchor', anchor);
     text.style.pointerEvents = 'none';
 
     g.appendChild(glow);
