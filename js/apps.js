@@ -19,8 +19,14 @@ const Apps = (() => {
     vault: { icon: '🔒', title: 'COFRE O.R.T.', path: 'O.R.T. > SEC > VAULT' },
     calendar: { icon: '📅', title: 'LINHA DO TEMPO', path: 'O.R.T. > INTEL > TIMELINE' },
     terminal: { icon: '💻', title: 'TERMINAL CLI', path: 'O.R.T. > SYS > TERMINAL' },
+    combat: { icon: '⚔️', title: 'SINCRO COMBATE', path: 'O.R.T. > ADMIN > COMBAT MASTER' },
     admin: { icon: '⚙', title: 'PAINEL ADM', path: 'O.R.T. > ADMIN > CONTROL' },
   };
+
+  let activeRoomId = '00000000-0000-0000-0000-000000000001';
+  let activeRoomName = 'CANAL OMEGA';
+  let presenceInterval = null;
+  let _inventoryItems = []; // Novo cache local para evitar erros de escape em atributos HTML
 
   /* ── Titlebar HTML ──────────────────────────────────────── */
   function titlebar(appId) {
@@ -39,7 +45,7 @@ const Apps = (() => {
   /* ── Render HTML ─────────────────────────────────────────── */
   function render(appId) {
     try {
-      const renders = { gallery, videos, missions, emails, chat, shop, map: mapRender, notepad, vault, calendar, terminal, admin, stats: statsPage, inventory: inventoryPage };
+      const renders = { gallery, videos, missions, emails, chat, shop, map: mapRender, notepad, vault, calendar, terminal, combat, admin, stats: statsPage, inventory: inventoryPage };
       return titlebar(appId) + `<div class="app-content" id="content-${appId}">` +
         (renders[appId] ? renders[appId]() : '<div class="empty-state">EM DESENVOLVIMENTO</div>') +
         '</div>';
@@ -55,7 +61,7 @@ const Apps = (() => {
       gallery: initGallery, videos: initVideos, missions: initMissions,
       emails: initEmails, chat: initChat, shop: initShop, map: mapInit,
       notepad: initNotepad, vault: initVault,
-      calendar: initCalendar, terminal: initTerminal, admin: initAdmin,
+      calendar: initCalendar, terminal: initTerminal, combat: initCombat, admin: initAdmin,
       stats: initStats, inventory: initInventory
     };
     if (inits[appId]) {
@@ -383,12 +389,20 @@ const Apps = (() => {
       </div>
       <div id="missions-add-form" class="hidden" style="background:var(--bg-panel);border:1px solid var(--border-dim);padding:16px;margin-bottom:16px;">
         <div style="display:grid;gap:10px;margin-bottom:12px;">
-          <div class="login-field"><label class="login-label">&gt; CÓDIGO DA MISSÃO</label><input type="text" id="m-code" placeholder="M-073 — OPERAÇÃO NEXUS"></div>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-            <div class="login-field"><label class="login-label">&gt; RECOMPENSA (CR$)</label><input type="number" id="m-reward" value="0"></div>
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:12px;">
+            <div class="login-field">
+              <label class="login-label">&gt; RECOMPENSA (CR$)</label>
+              <input type="number" id="m-reward" value="0">
+            </div>
+            <div class="login-field">
+              <label class="login-label">&gt; RECOMPENSA ITEM (LOOT)</label>
+              <select id="m-loot-reward" style="width:100%; border-color:var(--amber); color:var(--amber);">
+                 <option value="">-- NENHUM --</option>
+              </select>
+            </div>
             <div class="login-field">
               <label class="login-label">&gt; DESIGNAR AGENTES</label>
-              <div id="m-assign-container" style="display:flex; flex-wrap:wrap; gap:8px; background:rgba(0,40,0,0.3); padding:8px; border:1px solid var(--border-dim); max-height:100px; overflow-y:auto;">
+              <div id="m-assign-container" style="display:flex; flex-wrap:wrap; gap:8px; background:rgba(0,40,0,0.3); padding:8px; border:1px solid var(--border-dim); height:34px; overflow-y:auto;">
                  <div class="loading-state" style="font-size:10px;">ESCANER DE AGENTES<span class="loading-dots"></span></div>
               </div>
             </div>
@@ -420,11 +434,21 @@ const Apps = (() => {
       $('missions-add-form')?.classList.toggle('hidden');
       if (!$('missions-add-form')?.classList.contains('hidden')) {
         renderMissionAgentSelector();
+        loadLootRewards();
       }
     });
 
     $('btn-cancel-mission')?.addEventListener('click', () => $('missions-add-form')?.classList.add('hidden'));
     $('btn-save-mission')?.addEventListener('click', saveMission);
+  }
+
+  async function loadLootRewards() {
+    const sel = $('m-loot-reward');
+    if (!sel) return;
+    const db = Auth.db();
+    if (!db) return;
+    const { data } = await db.from('store_items').select('id, name').eq('is_loot', true).order('name');
+    sel.innerHTML = `<option value="">-- NENHUM --</option>` + (data || []).map(i => `<option value="${i.id}">${i.name}</option>`).join('');
   }
 
   async function renderMissionAgentSelector() {
@@ -444,6 +468,7 @@ const Apps = (() => {
     const desc = $('m-desc')?.value?.trim();
     const briefing = $('m-briefing')?.value?.trim();
     const reward = parseInt($('m-reward')?.value) || 0;
+    const lootId = $('m-loot-reward')?.value || null;
     const checks = document.querySelectorAll('input[name="m-assign-check"]:checked');
     const assign = Array.from(checks).map(c => c.value).join(',') || 'all';
 
@@ -455,6 +480,7 @@ const Apps = (() => {
       briefing: briefing,
       status: 'ativa',
       reward: reward,
+      loot_item_id: lootId,
       assigned_to: assign
     });
     $('missions-add-form')?.classList.add('hidden');
@@ -470,7 +496,7 @@ const Apps = (() => {
       { id: 'd2', title: 'M-002 — EXTRAÇÃO DE DADOS OMEGA', description: 'Recuperar arquivos classificados da instalação abandonada.', status: 'ativa' },
       { id: 'd3', title: 'M-000 — TREINAMENTO INICIAL', description: 'Familiarização com protocolos O.R.T.', status: 'completa' },
     ];
-    const data = db ? (await db.from('missions').select('*').order('created_at', { ascending: false })).data || [] : DEMO;
+    const data = db ? (await db.from('missions').select('*, store_items(name)').order('created_at', { ascending: false })).data || [] : DEMO;
     if (!data.length) {
       list.innerHTML = `<div class="empty-state"><span class="empty-state-icon">📋</span>NENHUMA MISSÃO REGISTRADA</div>`;
       return;
@@ -482,7 +508,10 @@ const Apps = (() => {
           <div class="mission-desc">${m.description || ''}</div>
           <div style="font-size:10px; color:var(--green-mid);">DESIGNADO: ${m.assigned_to || 'all'}</div>
         </div>
-        <div style="color:var(--amber); font-family:var(--font-code);">CR$ ${m.reward || 0}</div>
+        <div style="color:var(--amber); font-family:var(--font-code); display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
+           <span>CR$ ${m.reward || 0}</span>
+           ${m.store_items ? `<span style="font-size:9px; color:var(--green-dim); border:1px solid var(--green-dim); padding:1px 4px;">+ ${m.store_items.name.toUpperCase()}</span>` : ''}
+        </div>
         <span class="chip ${STATUS_CLS[m.status] || ''}">${STATUS_LABELS[m.status] || m.status.toUpperCase()}</span>
         <div style="display:flex; gap:6px; align-items:center;">
           ${Auth.isAdmin() && db ? `
@@ -502,24 +531,34 @@ const Apps = (() => {
     if (status === 'completa') {
       // Obter dados da missão para distribuir recompensa
       const { data: m } = await db.from('missions').select('*').eq('id', id).single();
-      if (m && m.reward > 0) {
-        // Distribuir para designados
+      if (m && (m.reward > 0 || m.loot_item_id)) {
+        let ids = [];
         if (m.assigned_to === 'all') {
-          // Para todos: Admin precisa lidar com isso ou incrementar todos os perfis
-          // Aqui vamos simplificar: o Supabase precisaria de um RPC ou loop. 
-          // Vamos ao menos avisar ou fazer para o usuário atual se ele estiver na lista.
-          showNotification('MISSÃO CONCLUÍDA', `RECOMPENSA DE CR$ ${m.reward} DISTRIBUÍDA PARA TODOS OS AGENTES.`, 'success');
+          const { data: allUsers } = await Auth.adminListUsers();
+          ids = (allUsers || []).map(u => u.id);
         } else {
-          // Para um ou IDs específicos (separados por vírgula)
-          const ids = m.assigned_to.split(',').map(i => i.trim());
-          for (const userId of ids) {
-            const { data: p } = await db.from('profiles').select('credits').eq('id', userId).single();
-            if (p) {
-              await db.from('profiles').update({ credits: p.credits + m.reward }).eq('id', userId);
-            }
-          }
-          showNotification('MISSÃO CONCLUÍDA', `RECOMPENSA DE CR$ ${m.reward} DISTRIBUÍDA PARA OS DESIGNADOS.`, 'success');
+          ids = m.assigned_to.split(',').map(i => i.trim());
         }
+
+        for (const userId of ids) {
+          // 1. Distribuir Créditos
+          if (m.reward > 0) {
+            const { data: p } = await db.from('profiles').select('credits').eq('id', userId).single();
+            if (p) await db.from('profiles').update({ credits: p.credits + m.reward }).eq('id', userId);
+          }
+          // 2. Distribuir Item de Loot
+          if (m.loot_item_id) {
+            await db.from('inventory').insert({
+              user_id: userId,
+              item_id: m.loot_item_id,
+              is_equipped: false
+            });
+          }
+        }
+
+        const rewardMsg = m.loot_item_id ? `CR$ ${m.reward} E ITENS DE RECOMPENSA` : `CR$ ${m.reward}`;
+        const targetMsg = m.assigned_to === 'all' ? 'TODOS OS AGENTES' : 'OS DESIGNADOS';
+        showNotification('MISSÃO CONCLUÍDA', `RECOMPENSA (${rewardMsg}) DISTRIBUÍDA PARA ${targetMsg}.`, 'success');
       }
     }
 
@@ -547,7 +586,7 @@ const Apps = (() => {
     const db = Auth.db();
     let mission = null;
     if (db) {
-      const { data } = await db.from('missions').select('*').eq('id', id).single();
+      const { data } = await db.from('missions').select('*, store_items(name)').eq('id', id).single();
       mission = data;
     } else {
       // Demo data handling (optional)
@@ -570,6 +609,11 @@ const Apps = (() => {
                 <div style="font-family:var(--font-code); font-size:15px; color:var(--green-mid); line-height:1.8; white-space:pre-wrap;">
                     ${mission.briefing || 'NENHUMA INSTRUÇÃO ADICIONAL DISPONÍVEL.'}
                 </div>
+                ${mission.store_items ? `
+                <div style="margin-top:20px; padding:15px; border:1px dashed var(--amber); background:rgba(255,183,0,0.05);">
+                   <div class="login-label" style="color:var(--amber); margin-bottom:5px;">RECOMPENSA LOGÍSTICA ADICIONAL</div>
+                   <div style="font-family:var(--font-code); color:var(--green); font-size:16px;">> ${mission.store_items.name.toUpperCase()}</div>
+                </div>` : ''}
                 <div style="margin-top:30px; text-align:right;">
                     <button class="btn" onclick="document.getElementById('lightbox').classList.add('hidden')">[ FECHAR ]</button>
                 </div>
@@ -1038,7 +1082,7 @@ const Apps = (() => {
     }
     list.innerHTML = data.map(v => {
       const isAdmin = Auth.isAdmin();
-      const deleteBtn = isAdmin ? `<button class="btn btn-danger vault-delete-btn" onclick="Apps.deleteVaultItem('${v.id}')" style="margin-top:10px;font-size:11px;padding:4px 10px;">[ APAGAR ARQUIVO ]</button>` : '';
+      const deleteBtn = isAdmin ? `<button class="btn btn-danger vault-delete-btn" onclick="event.stopPropagation(); Apps.deleteVaultItem('${v.id}')" style="margin-top:10px;font-size:11px;padding:4px 10px;">[ APAGAR ARQUIVO ]</button>` : '';
 
       if (v.is_unlocked) {
         return `
@@ -1079,7 +1123,7 @@ const Apps = (() => {
               </svg>
               <div class="vault-padlock-hint">[ CLIQUE PARA INSERIR CÓDIGO DE ACESSO ]</div>
             </div>
-            ${isAdmin ? deleteBtn : ''}
+            ${deleteBtn}
           </div>`;
       }
     }).join('');
@@ -1092,10 +1136,14 @@ const Apps = (() => {
       type: 'confirm',
       onConfirm: async () => {
         const db = Auth.db();
-        if (db) {
-          const { error } = await db.from('vault_items').delete().eq('id', id);
-          if (!error) { showNotification('ARQUIVO DESTRUÍDO', 'Dado eliminado do Mainframe.', 'success'); loadVault(); }
-          else showNotification('FALHA', error.message, 'alert');
+        if (!db) { showNotification('ERRO', 'Sem conexão com o banco de dados.', 'alert'); return; }
+        const { error, data } = await db.from('vault_items').delete().eq('id', id).select();
+        if (error) {
+          console.error('[VAULT DELETE] Erro:', error);
+          showNotification('FALHA AO APAGAR', 'Erro: ' + error.message + ' (verifique as políticas RLS no Supabase)', 'alert');
+        } else {
+          showNotification('ARQUIVO DESTRUÍDO', 'Dado eliminado do Mainframe.', 'success');
+          loadVault();
         }
       }
     });
@@ -1134,15 +1182,32 @@ const Apps = (() => {
           <div class="padlock-digit" id="pd-2">_</div>
           <div class="padlock-digit" id="pd-3">_</div>
         </div>
+        <!-- Input oculto para teclado virtual no mobile -->
+        <input type="tel" id="padlock-hidden-input" inputmode="numeric" pattern="[0-9]*"
+          style="position:absolute;opacity:0;width:1px;height:1px;pointer-events:none;"
+          maxlength="1" autocomplete="off">
         <div class="padlock-hint">INSIRA O CÓDIGO DE 4 DÍGITOS</div>
+        <div class="padlock-numpad">
+          <button class="padlock-key" onclick="Apps._padlockType('1')">1</button>
+          <button class="padlock-key" onclick="Apps._padlockType('2')">2</button>
+          <button class="padlock-key" onclick="Apps._padlockType('3')">3</button>
+          <button class="padlock-key" onclick="Apps._padlockType('4')">4</button>
+          <button class="padlock-key" onclick="Apps._padlockType('5')">5</button>
+          <button class="padlock-key" onclick="Apps._padlockType('6')">6</button>
+          <button class="padlock-key" onclick="Apps._padlockType('7')">7</button>
+          <button class="padlock-key" onclick="Apps._padlockType('8')">8</button>
+          <button class="padlock-key" onclick="Apps._padlockType('9')">9</button>
+          <button class="padlock-key padlock-key-back" onclick="Apps._padlockBackspace()">⌫</button>
+          <button class="padlock-key" onclick="Apps._padlockType('0')">0</button>
+          <button class="padlock-key padlock-key-ok" onclick="Apps.submitPadlock()">OK</button>
+        </div>
         <div class="padlock-actions">
-          <button class="btn" onclick="Apps.submitPadlock()">[ CONFIRMAR ] (ENTER)</button>
           <button class="btn btn-danger" onclick="Apps.closePadlock()">[ CANCELAR ]</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
 
-    // Escuta teclado
+    // Escuta teclado (desktop)
     overlay._keyHandler = (e) => {
       if (e.key >= '0' && e.key <= '9') Apps._padlockType(e.key);
       else if (e.key === 'Backspace') Apps._padlockBackspace();
@@ -1150,9 +1215,23 @@ const Apps = (() => {
       else if (e.key === 'Escape') Apps.closePadlock();
     };
     document.addEventListener('keydown', overlay._keyHandler);
-    // Foca no overlay para captura de teclado
-    overlay.setAttribute('tabindex', '-1');
-    setTimeout(() => overlay.focus(), 50);
+
+    // Suporte ao teclado virtual mobile via input oculto
+    setTimeout(() => {
+      const hiddenInput = document.getElementById('padlock-hidden-input');
+      if (hiddenInput) {
+        hiddenInput.focus();
+        hiddenInput.addEventListener('input', (e) => {
+          const val = e.target.value.replace(/\D/g, '');
+          if (val) {
+            Apps._padlockType(val[val.length - 1]);
+          } else {
+            Apps._padlockBackspace();
+          }
+          e.target.value = '';
+        });
+      }
+    }, 100);
   }
 
   function _padlockType(digit) {
@@ -1203,12 +1282,33 @@ const Apps = (() => {
     if (body) body.setAttribute('stroke', '#00ff00');
     if (svg) svg.classList.add('padlock-open-anim');
 
-    // Atualizar banco após animação
+    // Salvar o target antes de fechar
+    const targetId = _padlockTarget;
+
+    // Atualizar banco após animação e recarregar cofre
     setTimeout(async () => {
       const db = Auth.db();
-      if (db) await db.from('vault_items').update({ is_unlocked: true }).eq('id', _padlockTarget);
-      Apps.closePadlock();
-      loadVault();
+      if (db) {
+        const { error, data } = await db
+          .from('vault_items')
+          .update({ is_unlocked: true })
+          .eq('id', targetId)
+          .select();
+        if (error) {
+          console.error('[VAULT UNLOCK] Erro ao desbloquear:', error);
+          closePadlock();
+          showNotification(
+            'FALHA AO DESBLOQUEAR',
+            'Erro: ' + error.message + ' — Execute o script supabase-vault-fix.sql no seu Supabase.',
+            'alert'
+          );
+          await loadVault();
+          return;
+        }
+      }
+      closePadlock();
+      await loadVault();
+      showNotification('COFRE ABERTO', 'Arquivo desbloqueado com sucesso.', 'success');
     }, 900);
   }
 
@@ -1534,13 +1634,11 @@ const Apps = (() => {
       <div class="app-toolbar" style="display:flex; gap:10px;">
         <button class="btn ${_adminTab === 'agents' ? 'active' : ''}" id="adm-tab-agents">[ AGENTES ]</button>
         <button class="btn ${_adminTab === 'items' ? 'active' : ''}" id="adm-tab-items">[ FÁBRICA DE ITENS ]</button>
-        <button class="btn ${_adminTab === 'combat' ? 'active' : ''}" id="adm-tab-combat">[ MESTRE DE COMBATE ]</button>
         <button class="btn" onclick="Apps.showNotification('SISTEMA O.R.T.', 'CANAL DE COMUNICAÇÃO OPERALCIONAL.', 'new-email')">[ TESTAR ALERTA ]</button>
       </div>
       <div id="admin-tab-content" style="padding:15px; height:calc(100% - 40px); overflow-y:auto;">
          ${_adminTab === 'agents' ? renderAdminAgents() : ''}
          ${_adminTab === 'items' ? renderAdminItems() : ''}
-         ${_adminTab === 'combat' ? renderAdminCombat() : ''}
       </div>`;
   }
 
@@ -1597,11 +1695,22 @@ const Apps = (() => {
                <option value="legendary">LENDÁRIO</option>
             </select>
           </div>
-          <div class="login-field"><label class="login-label">TIPO TÉCNICO</label><input type="text" id="it-technical-type" placeholder="Ex: Espada de Energia"></div>
+          <div class="login-field" id="it-weapon-tier-field"><label class="login-label">PORTE DA ARMA</label>
+            <select id="it-weapon-tier">
+               <option value="Arma de Pequeno Porte">Pequeno Porte (Pistolas/SMGs)</option>
+               <option value="Arma de Médio Porte">Médio Porte (Rifles/Escopetas)</option>
+               <option value="Arma de Grande Porte">Grande Porte (Metralhadoras/Canhões)</option>
+               <option value="Arma Branca">Arma Branca (Lâminas/Bastões)</option>
+            </select>
+          </div>
+          <div class="login-field"><label class="login-label">TIPO TÉCNICO (DESCRIÇÃO)</label><input type="text" id="it-technical-type" placeholder="Ex: Rifle de Plasma HK"></div>
           <div class="login-field"><label class="login-label">DADO DE DANO/EFEITO</label><input type="text" id="it-dice" placeholder="Ex: 1d8 + 4"></div>
           <div class="login-field" style="grid-column: span 2;"><label class="login-label">DESCRIÇÃO</label><input type="text" id="it-desc"></div>
           <div class="login-field" id="it-content-field" style="grid-column: span 2; display:none;"><label class="login-label">CONTEÚDO (PARA DOCUMENTOS)</label><textarea id="it-content" rows="3" style="width:100%; background:rgba(0,0,0,0.3); color:var(--green); border:1px solid var(--border-dim); font-family:var(--font-code);"></textarea></div>
-          <div style="grid-column: span 2;"><label style="color:var(--green-mid); font-size:12px;"><input type="checkbox" id="it-loot"> DISPONÍVEL COMO LOOT DE MISSÃO</label></div>
+          <div style="grid-column: span 2; display:flex; gap:20px;">
+            <label style="color:var(--green-mid); font-size:12px;"><input type="checkbox" id="it-for-sale" checked> DISPONÍVEL PARA VENDA NA LOJA</label>
+            <label style="color:var(--green-mid); font-size:12px;"><input type="checkbox" id="it-loot"> DISPONÍVEL COMO LOOT DE MISSÃO</label>
+          </div>
         </div>
         <button class="btn" id="btn-save-item" style="margin-top:10px;">[ FABRICAR ITEM ]</button>
       </div>
@@ -1609,68 +1718,6 @@ const Apps = (() => {
       <div id="admin-items-list" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px; margin-top:10px;"></div>`;
   }
 
-  function renderAdminCombat() {
-    return `
-      <div style="display:grid; grid-template-columns:250px 1fr; gap:20px; height:100%;">
-         <div style="border-right:1px solid var(--border-dim); padding-right:15px; display:flex; flex-direction:column; gap:10px;">
-            <div class="login-label">> SELECIONAR AGENTES EM CAMPO</div>
-            <div id="combat-agent-selector" style="display:flex; flex-direction:column; gap:5px;"></div>
-         </div>
-         <div style="display:flex; flex-direction:column; gap:20px;">
-            <div id="combat-controls-panel" style="background:rgba(20,0,0,0.2); border:1px solid var(--red-alert); padding:15px;">
-               <div class="login-label" style="color:var(--red-alert);">> CONTROLES DE COMBATE (ALVO: <span id="combat-target-name">NENHUM</span>)</div>
-               <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:15px;">
-                  <div>
-                     <div class="stat-label">MODIFICAR SAÚDE (HP)</div>
-                     <div style="display:flex; gap:10px; margin-top:5px;">
-                        <input type="number" id="dmg-amount" value="1" style="width:60px;">
-                        <button class="btn btn-danger" onclick="Apps.applyCombatAction('damage')">[ DANO ]</button>
-                        <button class="btn" onclick="Apps.applyCombatAction('heal')">[ CURA ]</button>
-                     </div>
-                  </div>
-                  <div>
-                     <div class="stat-label">MODIFICAR ESPÍRITO (SP)</div>
-                     <div style="display:flex; gap:10px; margin-top:5px;">
-                        <input type="number" id="sp-amount" value="1" style="width:60px;">
-                        <button class="btn btn-danger" onclick="Apps.applyCombatAction('drain')">[ DRENO ]</button>
-                        <button class="btn" onclick="Apps.applyCombatAction('restore')">[ RESTAURAR ]</button>
-                     </div>
-                  </div>
-               </div>
-            </div>
-            <div id="combat-mental-panel" style="background:rgba(80,0,150,0.1); border:1px solid #a000ff; padding:15px; margin-top:10px;">
-               <div class="login-label" style="color:#a000ff;">> ESTADO MENTAL</div>
-               <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:10px;">
-                  <div>
-                     <div class="stat-label">SANIDADE (-1 a 5)</div>
-                     <div style="display:flex; gap:10px; margin-top:5px;">
-                        <input type="number" id="san-amount" value="5" min="-1" max="5" style="width:60px;">
-                        <button class="btn" onclick="Apps.applyCombatAction('sanity')">[ DEFINIR ]</button>
-                     </div>
-                  </div>
-                  <div>
-                     <div class="stat-label">EXPOSIÇÃO MENTAL (0-100%)</div>
-                     <div style="display:flex; gap:10px; margin-top:5px;">
-                        <input type="number" id="exp-amount" value="0" min="0" max="100" style="width:60px;">
-                        <button class="btn" onclick="Apps.applyCombatAction('exposure')">[ DEFINIR % ]</button>
-                     </div>
-                  </div>
-               </div>
-            </div>
-            <div style="background:rgba(0,20,0,0.2); border:1px solid var(--green); padding:15px;">
-               <div class="login-label">> AJUSTAR ATRIBUTOS TÉCNICOS</div>
-               <div id="combat-attr-controls" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-top:10px;"></div>
-            </div>
-            <div style="background:rgba(20,20,0,0.1); border:1px solid var(--amber); padding:15px;">
-               <div class="login-label" style="color:var(--amber);">> ENTREGAR EQUIPAMENTO (LOOT DIRECT)</div>
-               <div style="display:flex; gap:10px; margin-top:10px;">
-                  <select id="combat-loot-select" style="flex:1;"></select>
-                  <button class="btn" id="btn-give-loot" style="color:var(--amber); border-color:var(--amber);">[ ENTREGAR ]</button>
-               </div>
-            </div>
-         </div>
-      </div>`;
-  }
 
   async function initAdmin() {
     if (!Auth.isAdmin()) return;
@@ -1699,13 +1746,39 @@ const Apps = (() => {
     } else if (_adminTab === 'items') {
       content.innerHTML = renderAdminItems();
       loadAdminItems();
-      $('it-cat')?.addEventListener('change', e => $('it-content-field').style.display = e.target.value === 'document' ? 'block' : 'none');
+      $('it-cat')?.addEventListener('change', e => {
+        const cat = e.target.value;
+        if ($('it-content-field')) $('it-content-field').style.display = cat === 'document' ? 'block' : 'none';
+        if ($('it-weapon-tier-field')) $('it-weapon-tier-field').style.display = cat === 'weapon' ? 'block' : 'none';
+      });
       $('btn-save-item')?.addEventListener('click', createItem);
-    } else if (_adminTab === 'combat') {
-      content.innerHTML = renderAdminCombat();
-      loadCombatAgents();
-      loadLootSelect();
     }
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     SINCRO COMBATE (MESTRE DE JOGO)
+  ══════════════════════════════════════════════════════════ */
+  function combat() {
+    if (!Auth.isAdmin()) return '<div class="empty-state">ACESSO RESTRITO AO MESTRE</div>';
+    return `
+      <div class="combat-app-layout" style="display:grid; grid-template-columns:300px 1fr; height:100%; overflow:hidden;">
+         <!-- Seletor de Alvos -->
+         <aside style="border-right:1px solid var(--border-dim); padding:15px; display:flex; flex-direction:column; gap:10px; background:rgba(0,0,0,0.2);">
+            <div class="login-label">> AGENTES CONECTADOS</div>
+            <div id="combat-agent-selector" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:5px; scrollbar-width:thin;">
+               <div class="loading-state">...</div>
+            </div>
+         </aside>
+
+         <!-- Editor de Ficha -->
+         <main id="combat-editor-main" style="padding:20px; overflow-y:auto; scrollbar-width:thin;">
+            <div class="empty-state">SELECIONE UM AGENTE PARA SINCRONIZAR A FICHA</div>
+         </main>
+      </div>`;
+  }
+
+  function initCombat() {
+    loadCombatAgents();
   }
 
   async function createNewUser() {
@@ -1777,8 +1850,13 @@ const Apps = (() => {
     const rare = $('it-rare')?.value;
     const price = parseInt($('it-price')?.value) || 0;
     const isLoot = $('it-loot')?.checked;
+    const isForSale = $('it-for-sale')?.checked;
     const content = $('it-content')?.value;
-    const itemType = $('it-technical-type')?.value;
+    const tier = $('it-weapon-tier')?.value;
+    const techType = $('it-technical-type')?.value;
+
+    // Se for arma, o item_type principal deve ser o Porte para o sistema de slots
+    const itemType = cat === 'weapon' ? tier : techType;
     const damageDice = $('it-dice')?.value;
 
     if (!name) {
@@ -1799,6 +1877,7 @@ const Apps = (() => {
       rarity: rare,
       price,
       is_loot: isLoot,
+      is_for_sale: isForSale,
       content,
       item_type: itemType,
       damage_dice: damageDice
@@ -1815,6 +1894,8 @@ const Apps = (() => {
       $('it-technical-type').value = '';
       $('it-dice').value = '';
       if ($('it-content')) $('it-content').value = '';
+      if ($('it-for-sale')) $('it-for-sale').checked = true;
+      if ($('it-loot')) $('it-loot').checked = false;
     } else {
       showModal({ title: 'FALHA NA FÁBRICA', body: 'ERRO AO INSERIR NO BANCO: ' + error.message, type: 'alert' });
     }
@@ -1830,6 +1911,7 @@ const Apps = (() => {
       <div style="background:rgba(0,30,0,0.4); border:1px solid var(--border-dim); padding:10px; font-size:11px; display:flex; flex-direction:column; gap:4px;">
          <div style="color:var(--green); font-weight:bold;">${item.name}</div>
          <div style="color:var(--amber);">CR$ ${item.price} - ${item.category}</div>
+         <div style="font-size:9px; color:var(--green-mid);">${item.is_for_sale ? '<span style="color:var(--green);">[ LOJA: ON ]</span>' : '<span style="color:var(--red-alert);">[ LOJA: OFF ]</span>'} | ${item.is_loot ? '<span style="color:var(--amber);">[ LOOT: ON ]</span>' : '[ LOOT: OFF ]'}</div>
          ${item.damage_dice ? `<div style="color:var(--red-alert); font-size:9px;">DANO: ${item.damage_dice}</div>` : ''}
          <button class="btn btn-action-danger" style="font-size:9px; margin-top:5px;" onclick="Apps.deleteItem('${item.id}')">[ APAGAR ]</button>
       </div>
@@ -1860,75 +1942,233 @@ const Apps = (() => {
     `).join('');
   }
 
-  function selectCombatTarget(id, name) {
+  async function selectCombatTarget(id, name) {
     _selectedCombatId = id;
-    $('combat-target-name').textContent = name;
     loadCombatAgents(); // Refresh selection
-    loadCombatAttrControls(id);
-  }
 
-  async function loadCombatAttrControls(userId) {
-    const db = Auth.db();
-    const { data: u } = await db.from('profiles').select('*').eq('id', userId).single();
-    const grid = $('combat-attr-controls');
-    if (!grid || !u) return;
-
-    const attrs = ['str', 'dex', 'con', 'int', 'wis', 'spi'];
-    grid.innerHTML = attrs.map(a => `
-        <div style="display:flex; flex-direction:column; gap:2px;">
-           <span class="stat-label">${a.toUpperCase()}: ${u[a] || 0}</span>
-           <div style="display:flex; gap:2px;">
-              <button class="btn" style="padding:2px 5px;" onclick="Apps.updateStat('${u.id}', '${a}', ${u[a] - 1})">-</button>
-              <button class="btn" style="padding:2px 5px;" onclick="Apps.updateStat('${u.id}', '${a}', ${u[a] + 1})">+</button>
-           </div>
-        </div>
-     `).join('');
-  }
-
-  async function applyCombatAction(type) {
-    if (!_selectedCombatId) { showModal({ title: 'ERRO', body: 'SELECIONE UM ALVO PRIMEIRO.', type: 'alert' }); return; }
-    const amount = parseInt($(type.includes('hp') || type.includes('damage') || type.includes('heal') ? 'dmg-amount' : 'sp-amount').value) || 0;
+    const main = $('combat-editor-main');
+    if (!main) return;
 
     const db = Auth.db();
-    const { data: u } = await db.from('profiles').select('*').eq('id', _selectedCombatId).single();
+    const { data: u } = await db.from('profiles').select('*').eq('id', id).single();
     if (!u) return;
 
-    let updates = {};
-    if (type === 'damage') {
-      const rd = u.rd || 0;
-      const reduction = rd + Math.floor((u.con || 0) / 2);
-      const finalDmg = Math.max(1, amount - reduction);
-      updates.hp_current = Math.max(-10, (u.hp_current || 0) - finalDmg);
-      showNotification('DANO APLICADO', `${u.display_name} sofreu ${finalDmg} de dano (Reduzido em ${reduction}).`, 'new-message');
-    } else if (type === 'heal') {
-      updates.hp_current = Math.min(u.hp_max, (u.hp_current || 0) + amount);
-    } else if (type === 'drain') {
-      updates.sp_current = Math.max(0, (u.sp_current || 0) - amount);
-    } else if (type === 'restore') {
-      updates.sp_current = Math.min(u.sp_max, (u.sp_current || 0) + amount);
-    } else if (type === 'sanity') {
-      const sanVal = parseInt($('san-amount').value);
-      updates.sanity_current = sanVal;
-    } else if (type === 'exposure') {
-      const expVal = parseInt($('exp-amount').value);
-      updates.mental_exposure = expVal;
+    main.innerHTML = `
+      <div style="display:flex; flex-direction:column; gap:25px;">
+         <!-- Header da Ficha -->
+         <header style="border-bottom:2px solid var(--green); padding-bottom:10px; display:flex; justify-content:space-between; align-items:flex-end;">
+            <div>
+               <div class="login-label" style="font-size:10px; opacity:0.7;">IDENTIDADE DO AGENTE</div>
+               <div style="font-size:24px; color:var(--green); font-family:var(--font-code);">${Utils.esc(u.display_name || u.username)}</div>
+            </div>
+            <div style="text-align:right;">
+               <div class="login-label" style="font-size:10px; opacity:0.7;">CLEARANCE / EMAIL</div>
+               <div style="font-size:12px; color:var(--green-mid);">${u.role.toUpperCase()} | ${u.email}</div>
+            </div>
+         </header>
+
+         <div style="display:grid; grid-template-columns:1fr 1fr; gap:30px;">
+            <!-- Lado Esquerdo: Identidade e Vitais -->
+            <div style="display:flex; flex-direction:column; gap:20px;">
+               <section style="background:rgba(0,40,0,0.2); border:1px solid var(--border-dim); padding:15px;">
+                  <div class="login-label" style="margin-bottom:10px;">> DADOS BIOGRÁFICOS</div>
+                  <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                     <div class="login-field"><label class="login-label">NÍVEL</label><input type="number" id="combat-edit-level" value="${u.level || 1}"></div>
+                     <div class="login-field"><label class="login-label">CRÉDITOS (CR$)</label><input type="number" id="combat-edit-credits" value="${u.credits || 0}"></div>
+                     <div class="login-field"><label class="login-label">RAÇA</label><input type="text" id="combat-edit-race" value="${u.race || 'Humano'}"></div>
+                     <div class="login-field"><label class="login-label">FUNÇÃO / CLASSE</label><input type="text" id="combat-edit-class" value="${u.function_class || 'Recruta'}"></div>
+                  </div>
+                  <button class="btn" style="margin-top:10px; width:100%;" onclick="Apps.saveCombatBio()">[ SINCRONIZAR BIOGRAFIA ]</button>
+               </section>
+
+               <section style="background:rgba(40,0,0,0.2); border:1px solid var(--red-alert); padding:15px;">
+                  <div class="login-label" style="color:var(--red-alert); margin-bottom:10px;">> STATUS VITAIS (HP / SP)</div>
+                  <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                     <div>
+                        <div class="stat-label">SAÚDE (HP)</div>
+                        <div style="display:flex; gap:5px; margin-top:5px;">
+                           <input type="number" id="combat-hp-curr" value="${u.hp_current}" style="width:50px;">
+                           <span style="align-self:center;">/</span>
+                           <input type="number" id="combat-hp-max" value="${u.hp_max}" style="width:50px;">
+                        </div>
+                     </div>
+                     <div>
+                        <div class="stat-label">ESPÍRITO (SP)</div>
+                        <div style="display:flex; gap:5px; margin-top:5px;">
+                           <input type="number" id="combat-sp-curr" value="${u.sp_current}" style="width:50px;">
+                           <span style="align-self:center;">/</span>
+                           <input type="number" id="combat-sp-max" value="${u.sp_max}" style="width:50px;">
+                        </div>
+                     </div>
+                  </div>
+                  <div style="display:flex; gap:10px; margin-top:15px;">
+                     <input type="number" id="combat-vital-mod" value="1" style="width:60px;">
+                     <button class="btn btn-danger" style="flex:1;" onclick="Apps.modVital('hp', -1)">[ DANO ]</button>
+                     <button class="btn" style="flex:1;" onclick="Apps.modVital('hp', 1)">[ CURA ]</button>
+                  </div>
+                  <button class="btn" style="margin-top:10px; width:100%;" onclick="Apps.saveCombatVitals()">[ SINCRONIZAR VITAIS ]</button>
+               </section>
+            </div>
+
+            <!-- Lado Direito: Mental e Atributos -->
+            <div style="display:flex; flex-direction:column; gap:20px;">
+               <section style="background:rgba(80,0,150,0.1); border:1px solid #a000ff; padding:15px;">
+                  <div class="login-label" style="color:#a000ff; margin-bottom:10px;">> ESTADO MENTAL</div>
+                  <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                     <div>
+                        <div class="stat-label">SANIDADE (-1 a 5)</div>
+                        <div style="display:flex; gap:5px; margin-top:5px;">
+                           <button class="btn btn-danger" style="padding:2px 8px;" onclick="Apps.modSanity(-1)">-</button>
+                           <input type="number" id="combat-san-curr" value="${u.sanity_current}" min="-1" max="5" style="width:50px; text-align:center;">
+                           <button class="btn" style="padding:2px 8px;" onclick="Apps.modSanity(1)">+</button>
+                           <span style="align-self:center; opacity:0.5; margin:0 5px;">/</span>
+                           <input type="number" id="combat-san-max" value="${u.sanity_max || 5}" style="width:40px; opacity:0.7;">
+                        </div>
+                     </div>
+                     <div>
+                        <div class="stat-label">EXPOSIÇÃO (0-100%)</div>
+                        <div style="display:flex; gap:5px; margin-top:5px;">
+                           <input type="range" id="combat-exp-range" value="${u.mental_exposure}" min="0" max="100" style="flex:1;" oninput="$('combat-exp').value = this.value">
+                           <input type="number" id="combat-exp" value="${u.mental_exposure}" min="0" max="100" style="width:55px;" oninput="$('combat-exp-range').value = this.value">
+                        </div>
+                     </div>
+                  </div>
+                  <button class="btn" style="margin-top:10px; width:100%;" onclick="Apps.saveCombatMental()">[ SINCRONIZAR MENTE ]</button>
+               </section>
+
+               <section style="background:rgba(0,20,0,0.2); border:1px solid var(--green); padding:15px;">
+                  <div class="login-label" style="margin-bottom:10px;">> ATRIBUTOS TÉCNICOS</div>
+                  <div id="combat-attr-grid" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;">
+                     ${['str', 'dex', 'con', 'int', 'wis', 'spi'].map(a => `
+                        <div style="display:flex; flex-direction:column; gap:2px;">
+                           <span class="stat-label">${a.toUpperCase()}</span>
+                           <input type="number" id="combat-attr-${a}" value="${u[a] || 0}" style="width:100%;">
+                        </div>
+                     `).join('')}
+                  </div>
+                  <div class="login-field" style="margin-top:10px;">
+                     <label class="login-label">REDUÇÃO DE DANO (RD)</label>
+                     <input type="number" id="combat-rd" value="${u.rd || 0}" readonly style="opacity:0.7; border-style:dashed;">
+                  </div>
+                  <button class="btn" style="margin-top:10px; width:100%;" onclick="Apps.saveCombatAttrs()">[ SINCRONIZAR ATRIBUTOS ]</button>
+               </section>
+
+               <!-- NOVO: EQUIPAMENTO DO AGENTE -->
+               <section style="background:rgba(0,30,30,0.2); border:1px solid var(--border-dim); padding:15px;">
+                  <div class="login-label" style="margin-bottom:10px; color:var(--green-mid);">> EQUIPAMENTO EM USO</div>
+                  <div id="combat-equipped-list" style="font-family:var(--font-code); font-size:12px; display:flex; flex-direction:column; gap:6px;">
+                     <div class="loading-state">...</div>
+                  </div>
+               </section>
+
+               <section style="background:rgba(20,20,0,0.1); border:1px solid var(--amber); padding:15px;">
+                  <div class="login-label" style="color:var(--amber); margin-bottom:10px;">> ENTREGAR EQUIPAMENTO (LOOT DIRECT)</div>
+                  <div style="display:flex; gap:10px;">
+                     <select id="combat-loot-select" style="flex:1;"></select>
+                     <button class="btn" onclick="Apps.giveLoot()" style="color:var(--amber); border-color:var(--amber);">[ ENTREGAR ]</button>
+                  </div>
+               </section>
+            </div>
+         </div>
+      </div>`;
+
+    loadCombatAgents(); // Refresh selection
+    loadLootSelect();
+
+    // Carregar itens equipados do alvo
+    const equipList = $('combat-equipped-list');
+    if (equipList && db) {
+      const { data: equipped } = await db.from('inventory')
+        .select('*, store_items(*)').eq('user_id', id).eq('is_equipped', true);
+
+      if (equipped?.length) {
+        equipList.innerHTML = equipped.map(eq => `
+             <div style="padding:4px; border-left:2px solid var(--green-mid); background:rgba(0,255,65,0.03);">
+                <span style="color:var(--amber); font-size:10px;">[${(eq.store_items.item_type || eq.store_items.category).toUpperCase()}]</span>
+                <span style="color:var(--green);">${eq.store_items.name}</span>
+                ${eq.store_items.damage_dice ? `<span style="color:var(--green-dim); font-size:10px; margin-left:5px;">(${eq.store_items.damage_dice})</span>` : ''}
+             </div>
+          `).join('');
+      } else {
+        equipList.innerHTML = '<div style="opacity:0.5;">SEM EQUIPAMENTO ATIVO.</div>';
+      }
     }
-
-    await db.from('profiles').update(updates).eq('id', _selectedCombatId);
-    showNotification('SINCRO RPG', `Status de ${u.display_name} atualizado via Mestre de Combate.`, 'success');
-    loadCombatAgents();
   }
 
-  async function updateStat(id, stat, value) {
+  async function saveCombatBio() {
+    if (!_selectedCombatId) return;
+    const updates = {
+      level: parseInt($('combat-edit-level').value) || 1,
+      credits: parseInt($('combat-edit-credits').value) || 0,
+      race: $('combat-edit-race').value,
+      function_class: $('combat-edit-class').value
+    };
     const db = Auth.db();
-    let updates = { [stat]: value };
-    if (stat === 'con') updates.hp_max = 15 + value;
-    if (stat === 'spi') updates.sp_max = 10 + value;
-
-    await db.from('profiles').update(updates).eq('id', id);
-    loadCombatAttrControls(id);
-    loadCombatAgents();
+    await db.from('profiles').update(updates).eq('id', _selectedCombatId);
+    showNotification('SINCRO BIOGRAFIA', 'DADOS BIOGRÁFICOS SINCRONIZADOS.', 'success');
   }
+
+  async function modVital(stat, direction) {
+    const amount = parseInt($('combat-vital-mod').value) || 0;
+    const finalMod = amount * direction;
+    const input = $(`combat-${stat}-curr`);
+    if (input) {
+      input.value = parseInt(input.value) + finalMod;
+      await saveCombatVitals();
+    }
+  }
+
+  async function saveCombatVitals() {
+    if (!_selectedCombatId) return;
+    const updates = {
+      hp_current: parseInt($('combat-hp-curr').value),
+      hp_max: parseInt($('combat-hp-max').value),
+      sp_current: parseInt($('combat-sp-curr').value),
+      sp_max: parseInt($('combat-sp-max').value)
+    };
+    const db = Auth.db();
+    await db.from('profiles').update(updates).eq('id', _selectedCombatId);
+    showNotification('SINCRO VITAIS', 'STATUS DE SAÚDE E ESPÍRITO ATUALIZADOS.', 'success');
+  }
+
+  async function saveCombatMental() {
+    if (!_selectedCombatId) return;
+    const sanCurr = Math.max(-1, Math.min(5, parseInt($('combat-san-curr').value)));
+    const expVal = Math.max(0, Math.min(100, parseInt($('combat-exp').value)));
+
+    // Feedback imediato no input (clamp visual)
+    $('combat-san-curr').value = sanCurr;
+    $('combat-exp').value = expVal;
+
+    const updates = {
+      sanity_current: sanCurr,
+      sanity_max: parseInt($('combat-san-max').value) || 5,
+      mental_exposure: expVal
+    };
+    const db = Auth.db();
+    await db.from('profiles').update(updates).eq('id', _selectedCombatId);
+    showNotification('SINCRO MENTAL', 'ESTADO DA PSIQUÊ SINCRONIZADO.', 'success');
+  }
+
+  function modSanity(dir) {
+    const input = $('combat-san-curr');
+    if (!input) return;
+    let val = (parseInt(input.value) || 0) + dir;
+    input.value = Math.max(-1, Math.min(5, val));
+    saveCombatMental();
+  }
+
+  async function saveCombatAttrs() {
+    if (!_selectedCombatId) return;
+    const updates = { rd: parseInt($('combat-rd').value) };
+    ['str', 'dex', 'con', 'int', 'wis', 'spi'].forEach(a => {
+      updates[a] = parseInt($(`combat-attr-${a}`).value) || 0;
+    });
+    const db = Auth.db();
+    await db.from('profiles').update(updates).eq('id', _selectedCombatId);
+    showNotification('SINCRO ATRIBUTOS', 'ATRIBUTOS TÉCNICOS ATUALIZADOS.', 'success');
+  }
+
 
   async function loadLootSelect() {
     const sel = $('combat-loot-select');
@@ -2020,30 +2260,67 @@ const Apps = (() => {
   }
 
   /* ══════════════════════════════════════════════════════════
-     CHAT O.R.T.
+     CHAT OMEGA (SISTEMA DE SALAS & PRESENÇA)
   ══════════════════════════════════════════════════════════ */
+  function scrollToBottom() {
+    const container = document.getElementById('chat-messages-container');
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }
+
   function chat() {
     return `
-      <div style="display:grid; grid-template-rows:auto 1fr auto; height:100%; gap:0; background:rgba(0,10,0,0.4);">
-        <div style="background:rgba(0,255,65,0.05); border-bottom:1px solid var(--border-dim); padding:8px 12px; display:flex; justify-content:space-between; align-items:center;">
-          <span style="font-family:var(--font-code); font-size:11px; color:var(--green-mid); letter-spacing:1px;">CANAL OMEGA — PROTOCOLO S-32 ATIVO</span>
-          <span style="font-family:var(--font-code); font-size:11px; color:var(--green); display:flex; align-items:center; gap:6px;">
-            <span style="width:6px; height:6px; background:var(--green); border-radius:50%; box-shadow:0 0 8px var(--green);"></span> LIVE
-          </span>
-        </div>
-        <div id="chat-messages-container" style="flex:1; overflow-y:auto; padding:15px; display:flex; flex-direction:column; gap:10px; scrollbar-width:thin;">
-          <div class="loading-state">SINCRONIZANDO COM A REDE<span class="loading-dots"></span></div>
-        </div>
-        <div class="app-toolbar" style="border-top:1px solid var(--border-dim); padding:10px; display:flex; gap:10px; align-items:center;">
-          <input type="text" id="chat-input" autocomplete="off" placeholder="Segurança Máxima Ativa. Digite aqui..." 
-            style="flex:1; background:rgba(0,40,0,0.4); border:1px solid var(--border-dim); color:var(--green); padding:10px; font-family:var(--font-code); outline:none;">
-          <button class="btn" id="btn-chat-send" style="padding:10px 20px;">[ ENVIAR ]</button>
-        </div>
+      <div class="chat-layout">
+        <!-- Coluna Esquerda: Salas e DMs -->
+        <aside class="chat-sidebar">
+          <header class="chat-sidebar-header">
+             <button class="btn" onclick="Apps.switchRoom('00000000-0000-0000-0000-000000000001', 'CANAL OMEGA')" style="width:100%; font-size:11px; margin-bottom:8px; border-color:var(--green-mid); background:rgba(0,255,65,0.05);">[ CANAL OMEGA ]</button>
+             <div style="display:grid; grid-template-columns:1fr 1fr; gap:5px;">
+               <button class="btn" onclick="Apps.openNewDM()" style="width:100%; font-size:10px; padding:6px 2px;">[ + DM ]</button>
+               <button class="btn" onclick="Apps.openNewGroup()" style="width:100%; font-size:10px; padding:6px 2px;">[ + GRUPO ]</button>
+             </div>
+          </header>
+          <div id="chat-rooms-list" class="chat-rooms-list">
+             <div class="loading-state">...</div>
+          </div>
+        </aside>
+        <div id="chat-sidebar-backdrop" onclick="Apps.toggleChatSidebar()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:999; backdrop-filter:blur(2px);"></div>
+
+        <!-- Coluna Central: Mensagens -->
+        <main class="chat-main">
+          <div style="background:rgba(0,255,65,0.05); border-bottom:1px solid var(--border-dim); padding:8px 12px; display:flex; justify-content:space-between; align-items:center;">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <button id="btn-mobile-chat" class="btn" onclick="Apps.toggleChatSidebar()" style="display:none; padding:4px 8px; font-size:10px;">[ MENU ]</button>
+              <span id="chat-active-room-name" style="font-family:var(--font-code); font-size:11px; color:var(--green-mid); letter-spacing:1px;">${activeRoomName}</span>
+            </div>
+            <div id="chat-admin-actions"></div>
+          </div>
+          <div id="chat-messages-container" style="flex:1; overflow-y:auto; padding:15px; display:flex; flex-direction:column; gap:10px; scrollbar-width:thin;">
+            <div class="loading-state">SINCRONIZANDO<span class="loading-dots"></span></div>
+          </div>
+          <div class="app-toolbar" style="border-top:1px solid var(--border-dim); padding:10px; display:flex; gap:10px; align-items:center;">
+            <input type="text" id="chat-input" autocomplete="off" placeholder="Mensagem segura..." 
+              style="flex:1; background:rgba(0,40,0,0.4); border:1px solid var(--border-dim); color:var(--green); padding:10px; font-family:var(--font-code); outline:none;">
+            <button class="btn" id="btn-chat-send" style="padding:10px 20px;">[ ENVIAR ]</button>
+          </div>
+        </main>
+
+        <!-- Coluna Direita: Online -->
+        <aside class="chat-online-panel">
+          <header class="chat-online-header">ONLINE</header>
+          <div id="chat-online-list" class="chat-online-list">
+             <div class="loading-state">...</div>
+          </div>
+        </aside>
       </div>`;
   }
 
   function initChat() {
-    loadChatMessages();
+    loadChatRooms();
+    loadChatMessages(activeRoomId);
+    loadOnlineUsers();
+    startPresenceHeartbeat();
 
     const input = $('chat-input');
     const sendBtn = $('btn-chat-send');
@@ -2053,36 +2330,122 @@ const Apps = (() => {
       if (!text) return;
       input.value = '';
 
+      const user = Auth.getUser();
+      const tempId = 'temp-' + Date.now();
+
+      // Optimistic append
+      appendChatMessage({
+        id: tempId,
+        sender_id: user.id,
+        text: text,
+        created_at: new Date().toISOString(),
+        profiles: Auth.getProfile(),
+        status: 'sending'
+      });
+
       const db = Auth.db();
       if (db) {
-        await db.from('chat_messages').insert({
-          sender_id: Auth.getUser()?.id,
+        const { data, error } = await db.from('chat_messages').insert({
+          sender_id: user.id,
+          room_id: activeRoomId,
           text: text
-        });
+        }).select().single();
+
+        if (!error && data) {
+          // Update status to sent and replace ID
+          const msgEl = document.querySelector(`[data-msg-id="${tempId}"]`);
+          if (msgEl) {
+            msgEl.setAttribute('data-msg-id', data.id);
+            const statusEl = msgEl.querySelector('.msg-status');
+            if (statusEl) {
+              statusEl.textContent = '✓';
+              statusEl.className = 'msg-status sent';
+            }
+          }
+        }
       }
     };
 
     input?.addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
     sendBtn?.addEventListener('click', sendMessage);
+
+    // Subscribe to presence if not already
+    subscribePresence();
   }
 
-  async function loadChatMessages() {
+  async function loadChatRooms() {
+    const list = $('chat-rooms-list');
+    if (!list) return;
+    const db = Auth.db();
+    if (!db) return;
+
+    const { data: rooms } = await db.from('chat_rooms')
+      .select(`*, chat_room_members!inner(user_id)`)
+      .or(`type.eq.general, user_id.eq.${Auth.getUser()?.id}`)
+      .order('type', { ascending: false });
+
+    // Filtragem manual pq o 'or' com join no Supabase pode ser chato
+    const userRooms = rooms || [];
+
+    list.innerHTML = userRooms.map(r => {
+      const icon = r.type === 'general' ? '📡' : (r.type === 'dm' ? '👤' : '👥');
+      return `
+        <div class="chat-room-item ${r.id === activeRoomId ? 'active' : ''}" onclick="Apps.switchRoom('${r.id}', '${r.name}')">
+          <span class="room-icon">${icon}</span>
+          <span>${r.name}</span>
+        </div>`;
+    }).join('');
+  }
+
+  async function switchRoom(id, name) {
+    activeRoomId = id;
+    activeRoomName = name;
+
+    // Update UI
+    const nameEl = $('chat-active-room-name');
+    if (nameEl) nameEl.textContent = name;
+
+    loadChatRooms(); // Update active state
+    loadChatMessages(id);
+
+    // Close sidebar on mobile after selection
+    if (window.innerWidth <= 800) {
+      document.querySelector('.chat-sidebar')?.classList.remove('mobile-active');
+      const backdrop = $('chat-sidebar-backdrop');
+      if (backdrop) backdrop.style.display = 'none';
+    }
+
+    // Admin features for General Room
+    const adminActions = $('chat-admin-actions');
+    if (adminActions) {
+      if (id === '00000000-0000-0000-0000-000000000001' && Auth.getProfile()?.role === 'admin') {
+        adminActions.innerHTML = `<button class="btn btn-danger" onclick="Apps.clearGeneralChat()" style="font-size:9px; padding:4px 8px;">[ LIMPAR CANAL ]</button>`;
+      } else {
+        adminActions.innerHTML = '';
+      }
+    }
+  }
+
+  async function loadChatMessages(roomId) {
     const container = $('chat-messages-container');
     if (!container) return;
     const db = Auth.db();
     if (!db) {
-      container.innerHTML = '<div class="empty-state">DADOS INDISPONÍVEIS EM MODO DEMO.</div>';
+      container.innerHTML = '<div class="empty-state">DADOS INDISPONÍVEIS.</div>';
       return;
     }
 
     const { data } = await db.from('chat_messages')
       .select('*, profiles(display_name, username, role)')
+      .eq('room_id', roomId)
       .order('created_at', { ascending: true })
       .limit(50);
 
     container.innerHTML = '';
     if (data) data.forEach(msg => appendChatMessage(msg));
-    container.scrollTop = container.scrollHeight;
+
+    // Garantir rolagem após render
+    setTimeout(scrollToBottom, 100);
   }
 
   function appendChatMessage(msg) {
@@ -2091,51 +2454,227 @@ const Apps = (() => {
 
     if (container.querySelector('.loading-state')) container.innerHTML = '';
 
+    // Verificações para evitar duplicatas (se vier do realtime e ja estiver la)
+    if (msg.id && container.querySelector(`[data-msg-id="${msg.id}"]`)) return;
+
     const isMe = msg.sender_id === Auth.getUser()?.id;
     const senderName = isMe ? 'VOCÊ' : (msg.profiles?.display_name || msg.profiles?.username || 'AGENTE');
 
     const msgEl = document.createElement('div');
+    msgEl.setAttribute('data-msg-id', msg.id || '');
     msgEl.style.cssText = `max-width:85%; padding:10px 14px; border:1px solid var(--border-dim); font-family:var(--font-code); margin-bottom:6px; position:relative;
       ${isMe ? 'align-self:flex-end; background:rgba(0,255,65,0.08); border-color:var(--green); border-right:4px solid var(--green);' : 'align-self:flex-start; background:rgba(255,183,0,0.05); border-left:4px solid var(--amber);'}`;
 
     const timestamp = msg.created_at ? new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'AGORA';
+
+    const statusIcon = msg.status === 'sending' ? '⋯' : (msg.status === 'sent' || msg.id ? '✓' : '');
+    const statusClass = msg.status || (msg.id ? 'sent' : '');
 
     msgEl.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; gap:20px;">
         <span style="font-size:10px; color:${isMe ? 'var(--green)' : 'var(--amber)'}; font-weight:bold; letter-spacing:1px;">
           ${senderName} ${msg.profiles?.role ? `[${msg.profiles.role.toUpperCase()}]` : ''}
         </span>
-        <span style="font-size:9px; color:var(--green-dark);">${timestamp}</span>
+        <div style="display:flex; align-items:center;">
+          <span style="font-size:9px; color:var(--green-dark);">${timestamp}</span>
+          ${isMe ? `<span class="msg-status ${statusClass}">${statusIcon}</span>` : ''}
+        </div>
       </div>
-      <div style="color:var(--green); font-size:14px; word-break:break-word; line-height:1.4;">${msg.text}</div>
+      <div style="color:var(--green); font-size:14px; word-break:break-word; line-height:1.4;">${Utils.esc(msg.text)}</div>
     `;
 
     container.appendChild(msgEl);
-    container.scrollTop = container.scrollHeight;
+    scrollToBottom();
   }
 
   function subscribeChat() {
     const db = Auth.db();
     if (!db) return;
 
-    db.channel('public:chat_messages')
+    db.channel('chat_updates')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, async payload => {
-        const { data } = await db.from('profiles').select('display_name, username, role').eq('id', payload.new.sender_id).single();
-        const msg = { ...payload.new, profiles: data };
-        const container = $('chat-messages-container');
+        const msg = payload.new;
 
-        if (container) {
-          appendChatMessage(msg);
+        // Se for do room ativo, adiciona
+        if (msg.room_id === activeRoomId) {
+          const { data } = await db.from('profiles').select('display_name, username, role').eq('id', msg.sender_id).single();
+          appendChatMessage({ ...msg, profiles: data });
         }
 
-        // Notificação global (independente do app estar aberto)
-        const currentUserId = Auth.getUser()?.id;
-        if (payload.new.sender_id !== currentUserId) {
-          showNotification('CHAT O.R.T.', `${data?.display_name || 'AGENTE'}: ${payload.new.text}`, 'new-message');
+        // Notificação se não for eu
+        const userId = Auth.getUser()?.id;
+        if (msg.sender_id !== userId) {
+          showNotification('MENSAGEM RECEBIDA', 'Nova transmissão detectada no Chat Omega.', 'new-message');
           Desktop.updateBadge('chat', 1, true);
         }
       })
       .subscribe();
+  }
+
+  function toggleChatSidebar() {
+    const sidebar = document.querySelector('.chat-sidebar');
+    const backdrop = $('chat-sidebar-backdrop');
+    if (sidebar) {
+      const active = sidebar.classList.toggle('mobile-active');
+      if (backdrop) backdrop.style.display = active ? 'block' : 'none';
+    }
+  }
+
+  /* ── Presença Omega ─────────────────────────────────────── */
+  function startPresenceHeartbeat() {
+    if (presenceInterval) clearInterval(presenceInterval);
+    pingPresence();
+    presenceInterval = setInterval(pingPresence, 30000);
+  }
+
+  async function pingPresence() {
+    const user = Auth.getUser();
+    if (!user) return;
+    const db = Auth.db();
+    if (!db) return;
+
+    const profile = await Auth.getProfile();
+    const name = profile?.display_name || profile?.username || user.email;
+
+    await db.from('presence').upsert({
+      user_id: user.id,
+      display_name: name,
+      last_seen: new Date().toISOString()
+    });
+  }
+
+  async function loadOnlineUsers() {
+    const list = $('chat-online-list');
+    if (!list) return;
+    const db = Auth.db();
+    if (!db) return;
+
+    // Online = visto nos últimos 2 minutos
+    const twoMinAgo = new Date(Date.now() - 120000).toISOString();
+    const { data } = await db.from('presence')
+      .select('*')
+      .gt('last_seen', twoMinAgo)
+      .order('display_name');
+
+    list.innerHTML = (data || []).map(u => `
+        <div class="online-user-item">
+          <span class="chat-online-dot pulse"></span>
+          <span title="${Utils.esc(u.display_name)}">${Utils.esc(u.display_name)}</span>
+        </div>
+      `).join('');
+  }
+
+  function subscribePresence() {
+    const db = Auth.db();
+    if (!db) return;
+    db.channel('presence_updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'presence' }, () => {
+        loadOnlineUsers();
+      })
+      .subscribe();
+  }
+
+  /* ── Criação de RM/Grupos ────────────────────────────────── */
+  async function openNewDM() {
+    const db = Auth.db();
+    const { data: users } = await db.from('profiles').select('id, display_name, username').order('display_name');
+    const myId = Auth.getUser()?.id;
+
+    const options = (users || [])
+      .filter(u => u.id !== myId)
+      .map(u => `<button class="btn" onclick="Apps.createDM('${u.id}', '${u.display_name}')" style="width:100%; margin-bottom:5px;">[ CONECTAR ] ${u.display_name}</button>`)
+      .join('');
+
+    showModal({
+      title: 'INICIAR TRANSMISSÃO PRIVADA',
+      body: `<div style="max-height:300px; overflow-y:auto;">${options || 'NENHUM OUTRO AGENTE ONLINE.'}</div>`,
+      confirmText: 'VOLTAR'
+    });
+  }
+
+  async function createDM(targetUserId, targetName) {
+    const db = Auth.db();
+    const myId = Auth.getUser()?.id;
+
+    // Check if DM already exists
+    const { data: existing } = await db.from('chat_rooms')
+      .select('id, name')
+      .eq('type', 'dm')
+      .contains('id', db.from('chat_room_members').select('room_id').eq('user_id', myId)) // Simplificação conceitual
+
+    // Na verdade, vamos apenas criar um novo ou buscar o existente via lógica de membros
+    // Para simplificar no RPG: cria um novo private room com nome dos dois
+    const roomName = `DM: ${targetName}`;
+    const { data: newRoom } = await db.from('chat_rooms').insert({ name: roomName, type: 'dm' }).select().single();
+
+    if (newRoom) {
+      await db.from('chat_room_members').insert([
+        { room_id: newRoom.id, user_id: myId },
+        { room_id: newRoom.id, user_id: targetUserId }
+      ]);
+      switchRoom(newRoom.id, newRoom.name);
+      $('app-overlay')?.remove(); // Fecha o modal
+    }
+  }
+
+  async function openNewGroup() {
+    const db = Auth.db();
+    const { data: users } = await db.from('profiles').select('id, display_name, username').order('display_name');
+    const myId = Auth.getUser()?.id;
+
+    const userList = (users || [])
+      .filter(u => u.id !== myId)
+      .map(u => `
+        <label style="display:flex; align-items:center; gap:10px; padding:8px; border-bottom:1px solid var(--border-dim); cursor:pointer;">
+          <input type="checkbox" class="group-member-check" value="${u.id}">
+          <span style="font-family:var(--font-code); color:var(--green);">${u.display_name}</span>
+        </label>
+      `).join('');
+
+    showModal({
+      title: 'FORMAR GRUPO DE OPERAÇÕES',
+      body: `
+        <div style="margin-bottom:15px;">
+           <label style="font-size:10px; color:var(--green-dark);">NOME DO GRUPO</label>
+           <input type="text" id="new-group-name" class="input-field" placeholder="Ex: ESQUADRÃO OMEGA">
+        </div>
+        <div style="max-height:200px; overflow-y:auto; border:1px solid var(--border-dim); padding:5px;">
+           ${userList}
+        </div>
+      `,
+      confirmText: 'CRIAR GRUPO',
+      type: 'confirm',
+      cancelText: 'VOLTAR',
+      onConfirm: async () => {
+        const name = $('new-group-name').value.trim() || 'NOVO GRUPO';
+        const checks = document.querySelectorAll('.group-member-check:checked');
+        const members = Array.from(checks).map(c => c.value);
+        members.push(myId);
+
+        if (members.length < 2) return;
+
+        const { data: room } = await db.from('chat_rooms').insert({ name, type: 'group' }).select().single();
+        if (room) {
+          const membersToInsert = members.map(uid => ({ room_id: room.id, user_id: uid }));
+          await db.from('chat_room_members').insert(membersToInsert);
+          switchRoom(room.id, room.name);
+        }
+      }
+    });
+  }
+
+  async function clearGeneralChat() {
+    showModal({
+      title: 'LIMPEZA DE REGISTROS',
+      body: 'DESEJA APAGAR TODAS AS MENSAGENS DO CANAL GERAL? ESTA AÇÃO É IRREVERSÍVEL.',
+      type: 'confirm',
+      onConfirm: async () => {
+        const db = Auth.db();
+        await db.from('chat_messages').delete().eq('room_id', '00000000-0000-0000-0000-000000000001');
+        loadChatMessages('00000000-0000-0000-0000-000000000001');
+        showNotification('LIMPEZA CONCLUÍDA', 'Todos os logs do Canal Omega foram expurgados.', 'success');
+      }
+    });
   }
 
   function subscribeEmails() {
@@ -2169,12 +2708,26 @@ const Apps = (() => {
   ══════════════════════════════════════════════════════════ */
   function shop() {
     return `
-      <div style="display:grid; grid-template-rows:auto 1fr; height:100%; gap:0;">
+      <div style="display:grid; grid-template-rows:auto auto 1fr; height:100%; gap:0;">
         <div class="app-toolbar" style="display:flex; justify-content:space-between; align-items:center;">
           <div style="font-family:var(--font-code); color:var(--amber);">
             MEUS CRÉDITOS: <span id="shop-user-credits" style="color:var(--green);">CR$ ---</span>
           </div>
           <button class="btn" id="btn-shop-refresh">[ ATUALIZAR ESTOQUE ]</button>
+        </div>
+        <div class="shop-filter-bar" style="padding:10px 20px; background:rgba(0,40,0,0.3); border-bottom:1px solid var(--border-dim); display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
+           <div class="login-field shop-search-wrapper" style="flex:1; margin:0;">
+              <input type="text" id="shop-search" placeholder="PROCURAR ITEM..." style="padding:6px 10px; font-size:12px; width:100%; box-sizing:border-box;">
+           </div>
+           <div id="shop-categories" style="display:flex; gap:6px; flex-wrap:wrap;">
+              <button class="btn-filter active" data-cat="all">TUDO</button>
+              <button class="btn-filter" data-cat="consumable">CONSUMÍVEIS</button>
+              <button class="btn-filter" data-cat="armor">ARMADURAS</button>
+              <button class="btn-filter" data-cat="Arma Branca">BRANCAS</button>
+              <button class="btn-filter" data-cat="Arma de Pequeno Porte">PEQUENAS</button>
+              <button class="btn-filter" data-cat="Arma de Médio Porte">MÉDIAS</button>
+              <button class="btn-filter" data-cat="Arma de Grande Porte">GRANDES</button>
+           </div>
         </div>
         <div id="shop-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:16px; padding:20px; overflow-y:auto;">
           <div class="loading-state">CONECTANDO AO ARMAZÉM<span class="loading-dots"></span></div>
@@ -2182,10 +2735,25 @@ const Apps = (() => {
       </div>`;
   }
 
+  let shopItemsCache = [];
+  let currentShopFilter = 'all';
+
   function initShop() {
     loadShopItems();
     updateUserCreditsDisplay();
     $('btn-shop-refresh')?.addEventListener('click', loadShopItems);
+
+    // Listeners para Busca e Filtros
+    $('shop-search')?.addEventListener('input', renderShopItems);
+
+    document.querySelectorAll('.btn-filter').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.btn-filter').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentShopFilter = btn.dataset.cat;
+        renderShopItems();
+      });
+    });
   }
 
   async function updateUserCreditsDisplay() {
@@ -2206,15 +2774,41 @@ const Apps = (() => {
       return;
     }
 
-    const { data } = await db.from('store_items').select('*').order('price', { ascending: true });
-    grid.innerHTML = '';
+    const { data } = await db.from('store_items').select('*').eq('is_for_sale', true).order('price', { ascending: true });
+    shopItemsCache = data || [];
+    renderShopItems();
+  }
 
-    if (!data?.length) {
-      grid.innerHTML = '<div class="empty-state">ESTOQUE VAZIO NO MOMENTO.</div>';
+  function renderShopItems() {
+    const grid = $('shop-grid');
+    if (!grid) return;
+
+    const searchTerm = ($('shop-search')?.value || '').toLowerCase();
+
+    let filtered = shopItemsCache.filter(item => {
+      const matchesSearch = item.name.toLowerCase().includes(searchTerm) ||
+        (item.description && item.description.toLowerCase().includes(searchTerm));
+
+      let matchesCat = true;
+      if (currentShopFilter !== 'all') {
+        // Se for "consumable" ou "armor", checa categoria
+        if (currentShopFilter === 'consumable' || currentShopFilter === 'armor') {
+          matchesCat = item.category === currentShopFilter;
+        } else {
+          // Se for tipo de arma (Porte), checa o item_type
+          matchesCat = item.item_type === currentShopFilter;
+        }
+      }
+
+      return matchesSearch && matchesCat;
+    });
+
+    if (!filtered.length) {
+      grid.innerHTML = '<div class="empty-state">NENHUM ITEM ENCONTRADO COM ESTES CRITÉRIOS.</div>';
       return;
     }
 
-    grid.innerHTML = data.map(item => `
+    grid.innerHTML = filtered.map(item => `
       <div class="shop-card scan-effect" onclick="Apps.showItemDetails(${JSON.stringify(item).replace(/"/g, '&quot;')})">
         <div class="shop-card-icon">
           ${item.category === 'weapon' ? '🔫' : (item.category === 'armor' ? '🛡️' : '📦')}
@@ -2232,6 +2826,11 @@ const Apps = (() => {
   function showItemDetails(item) {
     const m = $('modal-item-details');
     if (!m) return;
+
+    // Mover para o final do body para garantir sobreposição total (stacking context)
+    document.body.appendChild(m);
+
+    m.style.zIndex = '1000000';
 
     const rarity = item.rarity || 'common';
 
@@ -2268,9 +2867,12 @@ const Apps = (() => {
     const buyBtn = $('btn-buy-from-detail');
     buyBtn.onclick = () => {
       m.classList.add('hidden');
+      m.classList.remove('modal-overlay-active');
+      m.style.zIndex = '';
       buyItem(item.id, item.price);
     };
 
+    m.classList.add('modal-overlay-active');
     m.classList.remove('hidden');
   }
 
@@ -2292,12 +2894,27 @@ const Apps = (() => {
       type: 'confirm',
       onConfirm: async () => {
         const newCredits = profile.credits - price;
-        const { error } = await db.from('profiles').update({ credits: newCredits }).eq('id', user.id);
-        if (!error) {
+        // 1. Atualizar Créditos
+        const { error: credError } = await db.from('profiles').update({ credits: newCredits }).eq('id', user.id);
+        if (credError) {
+          showModal({ title: 'FALHA NO MAINFRAME', body: 'ERRO AO PROCESSAR CRÉDITOS: ' + credError.message, type: 'alert' });
+          return;
+        }
+
+        // 2. Inserir no Inventário
+        const { error: invError } = await db.from('inventory').insert({
+          user_id: user.id,
+          item_id: id,
+          is_equipped: false
+        });
+
+        if (!invError) {
           showNotification('TRANSAÇÃO CONCLUÍDA', 'EQUIPAMENTO ENVIADO PARA O SEU INVENTÁRIO.', 'success');
           updateUserCreditsDisplay();
+          // Se o inventário estiver aberto, recarregar
+          if ($('inventory-grid')) loadInventory();
         } else {
-          showModal({ title: 'FALHA NO MAINFRAME', body: 'ERRO AO PROCESSAR CRÉDITOS: ' + error.message, type: 'alert' });
+          showModal({ title: 'ERRO LOGÍSTICO', body: 'ITEM PAGO, MAS FALHA AO REGISTRAR NO INVENTÁRIO: ' + invError.message, type: 'alert' });
         }
       }
     });
@@ -2451,7 +3068,15 @@ const Apps = (() => {
                  <div class="stat-box"><div class="stat-label">REDUÇÃO DE DANO (RD)</div><div class="stat-value" id="stat-rd">--</div></div>
               </section>
            </div>
-        </div>
+
+            <!-- NOVO: EQUIPAMENTO ATIVO -->
+            <section style="border-top:1px solid var(--border-dim); padding-top:20px;">
+               <div class="login-label" style="font-size:12px; margin-bottom:15px;">&gt; EQUIPAMENTO ATIVO (SLOTS)</div>
+               <div id="stats-equipped-list" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:10px;">
+                  <div class="loading-state">...</div>
+               </div>
+            </section>
+         </div>
       </div>`;
   }
 
@@ -2600,6 +3225,29 @@ const Apps = (() => {
         mist.style.filter = 'none';
       }
     }
+
+    // LISTAR EQUIPADOS (NOVO)
+    const equippedCont = $('stats-equipped-list');
+    const db = Auth.db();
+    if (equippedCont && db) {
+      const user = Auth.getUser();
+      const { data: equipped } = await db.from('inventory')
+        .select('*, store_items(*)').eq('user_id', user.id).eq('is_equipped', true);
+
+      if (equipped?.length) {
+        equippedCont.innerHTML = equipped.map(eq => `
+             <div class="stat-box" style="text-align:left; border-color:var(--green-mid); background:rgba(0,255,65,0.02);">
+                <div class="stat-label" style="font-size:9px; color:var(--green-dim);">${(eq.store_items.item_type || eq.store_items.category).toUpperCase()}</div>
+                <div style="font-family:var(--font-code); font-size:13px; color:var(--green); overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">
+                   ${eq.store_items.name}
+                </div>
+                ${eq.store_items.damage_dice ? `<div style="font-size:10px; color:var(--amber); margin-top:2px;">${eq.store_items.damage_dice}</div>` : ''}
+             </div>
+          `).join('');
+      } else {
+        equippedCont.innerHTML = '<div style="font-family:var(--font-code); font-size:12px; color:var(--green-dark);">NENHUM EQUIPAMENTO EM USO.</div>';
+      }
+    }
   }
 
   function openMugshotUpload() {
@@ -2688,40 +3336,281 @@ const Apps = (() => {
 
     if (error) { grid.innerHTML = `<div class="empty-state">ERRO NA MATRIZ: ${error.message}</div>`; return; }
 
+    _inventoryItems = items; // Cache local robusto
+
     const profile = await Auth.getProfile();
     const maxCapacity = (profile?.str || 1) * 2;
     if ($('inv-capacity')) $('inv-capacity').textContent = `${items.length} / ${maxCapacity} UNIDADES`;
 
-    grid.innerHTML = items?.length ? items.map(inv => {
+    if (!items?.length) {
+      grid.innerHTML = '<div class="empty-state">INVENTÁRIO VAZIO.</div>';
+      return;
+    }
+
+    const categories = {
+      weapon_large: { title: 'ARMAS DE GRANDE PORTE', items: [] },
+      weapon_medium: { title: 'ARMAS DE MÉDIO PORTE', items: [] },
+      weapon_small: { title: 'ARMAS DE PEQUENO PORTE', items: [] },
+      weapon_melee: { title: 'ARMAS BRANCAS', items: [] },
+      armor: { title: 'PROTEÇÃO & TRAJES', items: [] },
+      consumable: { title: 'MANUTENÇÃO & SUPORTE', items: [] },
+      other: { title: 'DADOS & UTILITÁRIOS', items: [] }
+    };
+
+    items.forEach((inv, index) => {
       const item = inv.store_items;
+      const cat = item.category;
+      const type = (item.item_type || '').toLowerCase();
+      inv._idx = index;
+
+      if (cat === 'weapon') {
+        if (type.includes('grande')) categories.weapon_large.items.push(inv);
+        else if (type.includes('médio') || type.includes('medio')) categories.weapon_medium.items.push(inv);
+        else if (type.includes('pequeno')) categories.weapon_small.items.push(inv);
+        else if (type.includes('branca') || type.includes('faca') || type.includes('espada') || type.includes('bastão')) categories.weapon_melee.items.push(inv);
+        else categories.weapon_small.items.push(inv); // Default for unknown weapons
+      } else if (categories[cat]) {
+        categories[cat].items.push(inv);
+      } else {
+        categories['other'].items.push(inv);
+      }
+    });
+
+    grid.style.display = 'block';
+    grid.innerHTML = Object.entries(categories).map(([key, cat]) => {
+      if (cat.items.length === 0) return '';
       return `
-        <div class="shop-card scan-effect" style="background:rgba(0,30,0,0.4); border:1px solid ${inv.is_equipped ? 'var(--green)' : 'var(--border-dim)'}; padding:15px; display:flex; flex-direction:column; gap:10px;">
-          <div style="display:flex; justify-content:space-between; align-items:center;">
-            <div class="chip chip-sm ${item.rarity || 'common'}">${(item.rarity || 'COMUM').toUpperCase()}</div>
-            ${inv.is_equipped ? '<span style="color:var(--green); font-size:10px;">[ EQUIPADO ]</span>' : ''}
-          </div>
-          <div style="font-family:var(--font-logo); font-size:14px; color:var(--green);">${item.name}</div>
-          <div style="font-family:var(--font-code); font-size:11px; color:var(--green-mid); flex:1;">${item.description || ''}</div>
-          <div style="display:flex; flex-direction:column; gap:6px; margin-top:10px;">
-             ${item.category === 'document' ? `<button class="btn" style="font-size:10px; width:100%;" onclick="Apps.openLightbox('${item.name}', '${item.content || 'Sem conteúdo.'}')">[ LER ARQUIVO ]</button>` : ''}
-             <button class="btn" style="font-size:10px; width:100%; ${inv.is_equipped ? 'color:var(--amber); border-color:var(--amber);' : ''}" 
-               onclick="Apps.toggleEquip('${inv.id}', ${inv.is_equipped})">
-               [ ${inv.is_equipped ? 'DESEQUIPAR' : 'EQUIPAR'} ]
-             </button>
+        <div class="inventory-section">
+          <div class="inventory-section-title">> ${cat.title} <span>(${cat.items.length})</span></div>
+          <div class="inventory-grid">
+            ${cat.items.map(inv => {
+        const item = inv.store_items;
+        return `
+                <div class="inventory-card ${inv.is_equipped ? 'equipped' : ''} scan-effect" 
+                     onclick="Apps.handleItemClick(event, ${inv._idx})">
+                  <div class="inventory-card-header">
+                    <div class="chip chip-sm ${item.rarity || 'common'}">${(item.rarity || 'COMUM').toUpperCase()}</div>
+                    ${inv.is_equipped ? '<span class="equip-indicator">[ EQUIPADO ]</span>' : ''}
+                  </div>
+                  <div style="font-family:var(--font-logo); font-size:13px; color:var(--green); margin-bottom:5px;">${item.name}</div>
+                  <div style="font-family:var(--font-code); font-size:11px; color:var(--green-mid); height:30px; overflow:hidden;">${item.description || ''}</div>
+                  <div style="border-top:1px dashed var(--border-dim); margin-top:8px; padding-top:8px; display:flex; justify-content:space-between; align-items:center;">
+                     <span style="font-size:10px; color:var(--green-dark);">${(item.item_type || item.category).toUpperCase()}</span>
+                     <span style="font-size:10px; color:var(--amber);">${item.damage_dice || ''}</span>
+                  </div>
+                </div>
+              `;
+      }).join('')}
           </div>
         </div>
       `;
-    }).join('') : '<div class="empty-state">INVENTÁRIO VAZIO.</div>';
+    }).join('');
   }
 
-  async function toggleEquip(inventoryId, currentlyEquipped) {
+  function parseDice(notation) {
+    if (!notation) return 0;
+    const match = notation.match(/^(\d+)d(\d+)(?:\s*([+-])\s*(\d+))?$/i);
+    if (!match) return 0;
+
+    const qty = parseInt(match[1]);
+    const sides = parseInt(match[2]);
+    const op = match[3];
+    const mod = parseInt(match[4] || 0);
+
+    let total = 0;
+    for (let i = 0; i < qty; i++) {
+      total += Math.floor(Math.random() * sides) + 1;
+    }
+
+    if (op === '+') total += mod;
+    if (op === '-') total -= mod;
+
+    return Math.max(1, total);
+  }
+
+  async function useItem(inventoryId, localIndex) {
     const db = Auth.db();
-    if (!db) return;
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    const inv = _inventoryItems[localIndex];
+    if (!inv) return;
+    const item = inv.store_items;
+
+    // 1. Calcular Recuperação
+    const dice = item.damage_dice || '1d4';
+    const amount = parseDice(dice);
+    const type = item.technical_meta?.recovery_type || 'hp'; // hp ou sp
+
+    // 2. Animação de Uso
+    const overlay = $('item-usage-overlay');
+    const display = $('recovery-value-display');
+    if (overlay && display) {
+      document.body.appendChild(overlay); // Garantir topo do stacking context
+      overlay.style.zIndex = '10000000';
+      display.innerHTML = `<div class="recovery-value">+${amount} ${type.toUpperCase()}</div>`;
+      overlay.classList.add('active');
+      Boot.playBeep(880, 0.1, 0.2); // Som de cura
+
+      setTimeout(() => {
+        overlay.classList.remove('active');
+        display.innerHTML = '';
+      }, 2000);
+    }
+
+    // 3. Atualizar Banco (Vitais)
+    const { data: profile } = await db.from('profiles').select('*').eq('id', user.id).single();
+    if (profile) {
+      const field = type === 'hp' ? 'hp_current' : 'sp_current';
+      const maxField = type === 'hp' ? 'hp_max' : 'sp_max';
+      const newVal = Math.min(profile[maxField], (profile[field] || 0) + amount);
+
+      await db.from('profiles').update({ [field]: newVal }).eq('id', user.id);
+      refreshStats();
+    }
+
+    // 4. Consumir Item (Remover do Inventário)
+    await db.from('inventory').delete().eq('id', inventoryId);
+    loadInventory();
+    showNotification('ITEM CONSUMIDO', `${item.name.toUpperCase()} UTILIZADO COM SUCESSO.`, 'success');
+  }
+
+  async function toggleEquip(inventoryId, currentlyEquipped, itemCategory, itemType) {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    if (!currentlyEquipped) {
+      // Regra de Slots: 1 Armadura, 1 Arma Grande, 1 Arma Pequena
+      let slotType = null;
+      if (itemCategory === 'armor') slotType = 'armor';
+      else if (itemCategory === 'weapon') {
+        const type = (itemType || '').toLowerCase();
+        if (type.includes('grande')) slotType = 'weapon_large';
+        else slotType = 'weapon_small'; // Pequeno, Médio, Branca
+      }
+
+      if (slotType) {
+        // Desequipar o que já estiver no slot (comparando pela categoria/subtipo no banco)
+        const { data: equippedItems } = await db.from('inventory')
+          .select('*, store_items(*)')
+          .eq('user_id', user.id)
+          .eq('is_equipped', true);
+
+        for (const eq of equippedItems) {
+          const eqCat = eq.store_items.category;
+          const eqType = eq.store_items.item_type;
+
+          let eqSlot = null;
+          if (eqCat === 'armor') eqSlot = 'armor';
+          else if (eqCat === 'weapon') {
+            const type = (eqType || '').toLowerCase();
+            if (type.includes('grande')) eqSlot = 'weapon_large';
+            else eqSlot = 'weapon_small';
+          }
+
+          if (eqSlot === slotType) {
+            await db.from('inventory').update({ is_equipped: false }).eq('id', eq.id);
+          }
+        }
+      }
+    }
+
     const { error } = await db.from('inventory').update({ is_equipped: !currentlyEquipped }).eq('id', inventoryId);
     if (!error) {
+      // Recalcular RD se for armadura
+      if (itemCategory === 'armor') {
+        const { data: allEquipped } = await db.from('inventory')
+          .select('*, store_items(*)').eq('user_id', user.id).eq('is_equipped', true);
+
+        let totalRD = 0;
+        allEquipped.forEach(e => {
+          if (e.store_items.category === 'armor') {
+            // Extrair RD do content ou metadata (exemplo: "RD 2")
+            const rdMatch = e.store_items.content?.match(/RD\s*(\d+)/i) ||
+              e.store_items.description?.match(/RD\s*(\d+)/i);
+            if (rdMatch) totalRD += parseInt(rdMatch[1]);
+          }
+        });
+        await db.from('profiles').update({ rd: totalRD }).eq('id', user.id);
+      }
+
       loadInventory();
-      refreshStats(); // Atualizar RD se houver mudanças
+      refreshStats();
     }
+  }
+
+  function handleItemClick(e, localIndex) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const menu = $('nexus-context-menu');
+    if (!menu) return;
+
+    // Mover para o final do body para garantir que fique acima de qualquer app-overlay dinâmica
+    document.body.appendChild(menu);
+
+    const inv = _inventoryItems[localIndex];
+    if (!inv) return;
+
+    console.log('[APPS] Menu solicitado para item:', inv.store_items.name);
+
+    const item = inv.store_items;
+    const invId = inv.id;
+    const isEquipped = inv.is_equipped;
+
+    let options = '';
+
+    const closeSelf = "document.getElementById('nexus-context-menu').style.display='none';";
+
+    if (item.category === 'weapon' || item.category === 'armor') {
+      options += `<div class="context-menu-item" onclick="${closeSelf} Apps.toggleEquip('${invId}', ${isEquipped}, '${item.category}', '${item.item_type || ''}')">
+                    ${isEquipped ? '[ DESEQUIPAR ]' : '[ EQUIPAR ]'}
+                  </div>`;
+    } else if (item.category === 'consumable') {
+      options += `<div class="context-menu-item" onclick="${closeSelf} Apps.useItem('${invId}', ${localIndex})">[ USAR ]</div>`;
+    } else if (item.category === 'document') {
+      options += `<div class="context-menu-item" onclick="${closeSelf} Apps.openLightbox('${item.name.replace(/'/g, "\\'")}', '${(item.content || '').replace(/'/g, "\\'")}')">[ LER ]</div>`;
+    }
+
+    options += `<div class="context-menu-sep"></div>`;
+    options += `<div class="context-menu-item" style="color:var(--red-alert)" onclick="${closeSelf} Apps.dropItem('${invId}')">[ DESCARTAR ]</div>`;
+
+    menu.innerHTML = options;
+    menu.style.display = 'flex';
+    menu.style.left = (e.clientX || 0) + 'px';
+    menu.style.top = (e.clientY || 0) + 'px';
+    menu.style.zIndex = '10000000'; // Prioridade máxima absoluta
+
+    // Fechar ao clicar fora ou ao escolher uma opção
+    const closeMenu = (ev) => {
+      if (!menu.contains(ev.target)) {
+        menu.style.display = 'none';
+        document.removeEventListener('mousedown', closeMenu);
+      }
+    };
+
+    // Pequeno delay para não fechar no próprio clique de abertura
+    setTimeout(() => {
+      document.addEventListener('mousedown', closeMenu);
+    }, 50);
+  }
+
+  async function dropItem(invId) {
+    showModal({
+      title: 'CONFIRMAR DESCARTE',
+      body: 'ESTE ITEM SERÁ REMOVIDO PERMANENTEMENTE DO SEU INVENTÁRIO. PROSSEGUIR?',
+      type: 'confirm',
+      onConfirm: async () => {
+        const db = Auth.db();
+        if (db) {
+          await db.from('inventory').delete().eq('id', invId);
+          loadInventory();
+          showNotification('ITEM DESCARTADO', 'REGISTRO REMOVIDO DO INVENTÁRIO.', 'success');
+        }
+      }
+    });
   }
 
 
@@ -2731,10 +3620,12 @@ const Apps = (() => {
     updateMissionStatus, deleteMission, openBriefing,
     changeUserRole, deleteUser,
     showNotification, initGlobalRealtime,
-    showModal, buyItem,
+    showModal, buyItem, showItemDetails,
     initInventory, initStats, initMap, openMugshotUpload,
-    deleteItem, selectCombatTarget, applyCombatAction, updateStat, toggleEquip,
-    deleteVaultItem, openPadlock, closePadlock, submitPadlock, _padlockType, _padlockBackspace
+    deleteItem, selectCombatTarget, toggleEquip, handleItemClick, useItem, dropItem,
+    saveCombatBio, saveCombatVitals, saveCombatMental, saveCombatAttrs, modVital, modSanity, giveLoot,
+    deleteVaultItem, openPadlock, closePadlock, submitPadlock, _padlockType, _padlockBackspace,
+    openNewDM, openNewGroup, createDM, switchRoom, clearGeneralChat, toggleChatSidebar
   };
 
 })();

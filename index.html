@@ -225,108 +225,114 @@
     <script src="js/desktop.js"></script>
     <script src="js/boot.js"></script>
 
-</body>
+    <!-- Menu de Contexto Global -->
+    <div id="nexus-context-menu"></div>
 
-<!-- MODAL: UPLOAD ARTE -->
-<div id="upload-modal" class="app-overlay hidden">
-  <div class="modal-box scan-effect" style="width:min(450px, 90vw);">
-    <div class="modal-header">> REGISTRAR NOVA ARTE</div>
-    <div class="modal-body" style="display:flex; flex-direction:column; gap:15px;">
-      <div class="form-group">
-        <label>TÍTULO DA OBRA</label>
-        <input type="text" id="art-title" class="input-field" placeholder="Ex: Protocolo Zero">
-      </div>
-      <div class="form-group">
-        <label>AUTOR/AGENTE</label>
-        <input type="text" id="art-author" class="input-field" placeholder="Ex: AGENTE_01">
-      </div>
-      <div style="border:1px dashed var(--border-dim); padding:20px; text-align:center; cursor:pointer;"
-        id="btn-cloudinary-upload">
-        <span style="font-size:30px; display:block;">☁</span>
-        <span style="font-family:var(--font-code); font-size:11px; color:var(--green-mid);">[ CLIQUE PARA SELECIONAR
-          ARQUIVO ]</span>
-      </div>
-      <div id="art-preview-container" class="hidden"
-        style="text-align:center; padding:10px; border:1px solid var(--border-dim);">
-        <img id="art-preview-img" src="" style="max-height:100px; max-width:100%;" alt="">
-      </div>
+    <!-- Overlay de Uso de Item (Animações) -->
+    <div id="item-usage-overlay" class="item-usage-overlay">
+      <div class="usage-scanline"></div>
+      <div id="recovery-value-display"></div>
     </div>
-    <div class="modal-footer">
-      <button class="btn" id="btn-cancel-upload">[ CANCELAR ]</button>
-      <button class="btn" id="btn-save-art" style="background:var(--green); color:var(--bg);">[ INSERIR NO BANCO
-        ]</button>
-    </div>
-  </div>
-</div>
 
-<!-- MODAL: EDITAR ARTE (NOVO) -->
-<div id="modal-edit-artwork" class="app-overlay hidden">
-  <div class="modal-box scan-effect" style="width:min(450px, 90vw);">
-    <div class="modal-header">> EDITAR REGISTRO DE ARTE</div>
-    <div class="modal-body" style="display:flex; flex-direction:column; gap:15px;">
-      <div class="form-group">
-        <label>TÍTULO DA OBRA</label>
-        <input type="text" id="edit-art-title" class="input-field">
-      </div>
-      <div class="form-group">
-        <label>AUTOR/AGENTE</label>
-        <input type="text" id="edit-art-author" class="input-field">
-      </div>
-      <input type="hidden" id="edit-art-id">
-    </div>
-    <div class="modal-footer">
-      <button class="btn" id="btn-cancel-edit-art">[ CANCELAR ]</button>
-      <button class="btn" id="btn-save-edit-art" style="background:var(--green); color:var(--bg);">[ SALVAR
-        ALTERAÇÕES ]</button>
-    </div>
-  </div>
-</div>
-
-<!-- MODAL: DETALHES TÉCNICOS DO ITEM (NOVO) -->
-<div id="modal-item-details" class="app-overlay hidden">
-  <div class="modal-box scan-effect" style="width:min(400px, 90vw);">
-    <div class="modal-header">> ESPECIFICAÇÕES TÉCNICAS O.R.T.</div>
-    <div class="modal-body" style="display:flex; flex-direction:column; gap:12px;">
-      <div id="item-detail-icon"
-        style="font-size:40px; text-align:center; padding:10px; background:rgba(0,255,65,0.05); border:1px solid var(--border-dim);">
-        🔫</div>
-      <div id="item-detail-name"
-        style="font-family:var(--font-logo); font-size:18px; color:var(--green); text-align:center; letter-spacing:2px;">
-        NOME DO ITEM</div>
-      <div id="item-detail-rarity" style="text-align:center;"></div>
-      <div
-        style="display:grid; grid-template-columns:1fr 1fr; gap:10px; border-top:1px solid var(--border-dim); border-bottom:1px solid var(--border-dim); padding:10px 0;">
-        <div>
-          <label style="font-size:10px; color:var(--green-dark);">TIPO</label>
-          <div id="item-detail-type" style="font-family:var(--font-code); color:var(--amber);">ARMA</div>
+    <!-- Modais -->
+    <div id="upload-modal" class="app-overlay hidden">
+      <div class="modal-box scan-effect" style="width:min(450px, 90vw);">
+        <div class="modal-header">> REGISTRAR NOVA ARTE</div>
+        <div class="modal-body" style="display:flex; flex-direction:column; gap:15px;">
+          <div class="form-group">
+            <label>TÍTULO DA OBRA</label>
+            <input type="text" id="art-title" class="input-field" placeholder="Ex: Protocolo Zero">
+          </div>
+          <div class="form-group">
+            <label>AUTOR/AGENTE</label>
+            <input type="text" id="art-author" class="input-field" placeholder="Ex: AGENTE_01">
+          </div>
+          <div style="border:1px dashed var(--border-dim); padding:20px; text-align:center; cursor:pointer;"
+            id="btn-cloudinary-upload">
+            <span style="font-size:30px; display:block;">☁</span>
+            <span style="font-family:var(--font-code); font-size:11px; color:var(--green-mid);">[ CLIQUE PARA SELECIONAR
+              ARQUIVO ]</span>
+          </div>
+          <div id="art-preview-container" class="hidden"
+            style="text-align:center; padding:10px; border:1px solid var(--border-dim);">
+            <img id="art-preview-img" src="" style="max-height:100px; max-width:100%;" alt="">
+          </div>
         </div>
-        <div id="item-detail-damage-cont">
-          <label style="font-size:10px; color:var(--green-dark);">DANO / EFEITO</label>
-          <div id="item-detail-damage" style="font-family:var(--font-code); color:var(--red-alert);">1d8 + 2</div>
+        <div class="modal-footer">
+          <button class="btn" id="btn-cancel-upload">[ CANCELAR ]</button>
+          <button class="btn" id="btn-save-art" style="background:var(--green); color:var(--bg);">[ INSERIR NO BANCO
+            ]</button>
         </div>
       </div>
-      <div id="item-detail-desc"
-        style="font-family:var(--font-code); font-size:13px; color:var(--green-mid); line-height:1.6; min-height:60px;">
-        Descrição completa enviada pelo Mainframe da Nexus...</div>
-      <div id="item-detail-price"
-        style="text-align:right; font-family:var(--font-code); font-size:15px; color:var(--amber);">CR$ 0</div>
     </div>
-    <div class="modal-footer">
-      <button class="btn" onclick="document.getElementById('modal-item-details').classList.add('hidden')">[
+
+    <div id="modal-edit-artwork" class="app-overlay hidden">
+      <div class="modal-box scan-effect" style="width:min(450px, 90vw);">
+        <div class="modal-header">> EDITAR REGISTRO DE ARTE</div>
+        <div class="modal-body" style="display:flex; flex-direction:column; gap:15px;">
+          <div class="form-group">
+            <label>TÍTULO DA OBRA</label>
+            <input type="text" id="edit-art-title" class="input-field">
+          </div>
+          <div class="form-group">
+            <label>AUTOR/AGENTE</label>
+            <input type="text" id="edit-art-author" class="input-field">
+          </div>
+          <input type="hidden" id="edit-art-id">
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="btn-cancel-edit-art">[ CANCELAR ]</button>
+          <button class="btn" id="btn-save-edit-art" style="background:var(--green); color:var(--bg);">[ SALVAR
+            ALTERAÇÕES ]</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="modal-item-details" class="app-overlay hidden">
+      <div class="modal-box scan-effect" style="width:min(400px, 90vw);">
+        <div class="modal-header">> ESPECIFICAÇÕES TÉCNICAS O.R.T.</div>
+        <div class="modal-body" style="display:flex; flex-direction:column; gap:12px;">
+          <div id="item-detail-icon"
+            style="font-size:40px; text-align:center; padding:10px; background:rgba(0,255,65,0.05); border:1px solid var(--border-dim);">
+            🔫</div>
+          <div id="item-detail-name"
+            style="font-family:var(--font-logo); font-size:18px; color:var(--green); text-align:center; letter-spacing:2px;">
+            NOME DO ITEM</div>
+          <div id="item-detail-rarity" style="text-align:center;"></div>
+          <div
+            style="display:grid; grid-template-columns:1fr 1fr; gap:10px; border-top:1px solid var(--border-dim); border-bottom:1px solid var(--border-dim); padding:10px 0;">
+            <div>
+              <label style="font-size:10px; color:var(--green-dark);">TIPO</label>
+              <div id="item-detail-type" style="font-family:var(--font-code); color:var(--amber);">ARMA</div>
+            </div>
+            <div id="item-detail-damage-cont">
+              <label style="font-size:10px; color:var(--green-dark);">DANO / EFEITO</label>
+              <div id="item-detail-damage" style="font-family:var(--font-code); color:var(--red-alert);">1d8 + 2</div>
+            </div>
+          </div>
+          <div id="item-detail-desc"
+            style="font-family:var(--font-code); font-size:13px; color:var(--green-mid); line-height:1.6; min-height:60px;">
+            Descrição completa enviada pelo Mainframe da Nexus...</div>
+          <div id="item-detail-price"
+            style="text-align:right; font-family:var(--font-code); font-size:15px; color:var(--amber);">CR$ 0</div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn"
+            onclick="const m=document.getElementById('modal-item-details'); m.classList.add('hidden'); m.classList.remove('modal-overlay-active'); m.style.zIndex='';">[
+            FECHAR ]</button>
+          <button class="btn" id="btn-buy-from-detail" style="background:var(--green); color:var(--bg);">[ ADQUIRIR
+            AGORA ]</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="lightbox" class="hidden">
+      <img id="lightbox-img" src="" alt="">
+      <div id="lightbox-caption"></div>
+      <button class="btn" onclick="document.getElementById('lightbox').classList.add('hidden')"
+        style="margin-top:16px;">[
         FECHAR ]</button>
-      <button class="btn" id="btn-buy-from-detail" style="background:var(--green); color:var(--bg);">[ ADQUIRIR
-        AGORA ]</button>
     </div>
-  </div>
-</div>
-
-<!-- Lightbox Global (Briefings e Artes) — Posicionado no fim para sobreposição total -->
-<div id="lightbox" class="hidden">
-  <img id="lightbox-img" src="" alt="">
-  <div id="lightbox-caption"></div>
-  <button class="btn" onclick="document.getElementById('lightbox').classList.add('hidden')" style="margin-top:16px;">[
-    FECHAR ]</button>
-</div>
 
 </body>
 

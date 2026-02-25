@@ -134,6 +134,7 @@ const Desktop = (() => {
         { id: 'vault', icon: '🔒', label: 'Cofre\nO.R.T.', module: 'vault' },
         { id: 'calendar', icon: '📅', label: 'Linha do\nTempo', module: 'calendar' },
         { id: 'terminal', icon: '💻', label: 'Terminal\nCLI', module: 'terminal' },
+        { id: 'combat', icon: '⚔️', label: 'Sincro\nCombate', module: 'combat', adminOnly: true },
         { id: 'admin', icon: '⚙', label: 'Painel\nADM', module: 'admin', adminOnly: true },
     ];
 

@@ -102,11 +102,13 @@ CREATE TABLE IF NOT EXISTS inventory (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Itens do Cofre (apenas admin)
+-- Itens do Cofre (apenas admin cria, todos agentes podem ler e desbloquear)
 CREATE TABLE IF NOT EXISTS vault_items (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   title TEXT NOT NULL,
   content TEXT,
+  pin_hash TEXT,
+  is_unlocked BOOLEAN DEFAULT FALSE,
   created_by UUID REFERENCES profiles(id),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -165,6 +167,11 @@ CREATE POLICY "autenticados_inserir_timeline"    ON timeline_events FOR INSERT W
 CREATE POLICY "autenticados_atualizar_missions"  ON missions        FOR UPDATE USING (auth.role() = 'authenticated');
 CREATE POLICY "autenticados_atualizar_timeline"  ON timeline_events FOR UPDATE USING (auth.role() = 'authenticated');
 CREATE POLICY "autenticados_atualizar_profiles"  ON profiles        FOR UPDATE USING (auth.role() = 'authenticated');
+CREATE POLICY "autenticados_atualizar_vault"     ON vault_items     FOR UPDATE USING (auth.role() = 'authenticated');
+
+-- Delete: apenas admin pode apagar do cofre
+CREATE POLICY "admin_deletar_vault" ON vault_items FOR DELETE
+  USING (EXISTS (SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.role = 'admin'));
 
 -- Loja/Inventário
 CREATE POLICY "autenticados_ler_store" ON store_items FOR SELECT USING (true);
@@ -193,6 +200,7 @@ commit;
 alter publication supabase_realtime add table chat_messages;
 alter publication supabase_realtime add table emails;
 alter publication supabase_realtime add table store_items;
+alter publication supabase_realtime add table vault_items;
 
 -- ============================================================
 --  Fim do schema. Após rodar:
