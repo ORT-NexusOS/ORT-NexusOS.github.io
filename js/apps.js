@@ -3574,6 +3574,7 @@ const Apps = (() => {
       options += `<div class="context-menu-item" onclick="${closeSelf} Apps.openLightbox('${item.name.replace(/'/g, "\\'")}', '${(item.content || '').replace(/'/g, "\\'")}')">[ LER ]</div>`;
     }
 
+    options += `<div class="context-menu-item" style="color:var(--amber)" onclick="${closeSelf} Apps.sellItem('${invId}', ${localIndex})">[ VENDER ]</div>`;
     options += `<div class="context-menu-sep"></div>`;
     options += `<div class="context-menu-item" style="color:var(--red-alert)" onclick="${closeSelf} Apps.dropItem('${invId}')">[ DESCARTAR ]</div>`;
 
@@ -3613,6 +3614,40 @@ const Apps = (() => {
     });
   }
 
+  async function sellItem(invId, localIndex) {
+    const inv = _inventoryItems[localIndex];
+    if (!inv) return;
+    const item = inv.store_items;
+    const sellPrice = Math.floor((item.price || 0) * 0.85);
+
+    showModal({
+      title: 'CONFIRMAR VENDA',
+      body: `DESEJA VENDER "${item.name.toUpperCase()}" POR CR$ ${sellPrice}? (RETORNO DE 85%)`,
+      type: 'confirm',
+      onConfirm: async () => {
+        const db = Auth.db();
+        const user = Auth.getUser();
+        if (!db || !user) return;
+
+        // 1. Adicionar Créditos
+        const { data: profile } = await db.from('profiles').select('credits').eq('id', user.id).single();
+        if (profile) {
+          const newCredits = (profile.credits || 0) + sellPrice;
+          await db.from('profiles').update({ credits: newCredits }).eq('id', user.id);
+        }
+
+        // 2. Remover do Inventário
+        await db.from('inventory').delete().eq('id', invId);
+
+        loadInventory();
+        if (typeof updateUserCreditsDisplay === 'function') updateUserCreditsDisplay();
+        if (typeof refreshStats === 'function') refreshStats();
+
+        showNotification('ITEM VENDIDO', `CONTRATO ENCERRADO. VOCÊ RECEBEU CR$ ${sellPrice}.`, 'success');
+      }
+    });
+  }
+
 
   return {
     render, init,
@@ -3622,7 +3657,7 @@ const Apps = (() => {
     showNotification, initGlobalRealtime,
     showModal, buyItem, showItemDetails,
     initInventory, initStats, initMap, openMugshotUpload,
-    deleteItem, selectCombatTarget, toggleEquip, handleItemClick, useItem, dropItem,
+    deleteItem, selectCombatTarget, toggleEquip, handleItemClick, useItem, dropItem, sellItem,
     saveCombatBio, saveCombatVitals, saveCombatMental, saveCombatAttrs, modVital, modSanity, giveLoot,
     deleteVaultItem, openPadlock, closePadlock, submitPadlock, _padlockType, _padlockBackspace,
     openNewDM, openNewGroup, createDM, switchRoom, clearGeneralChat, toggleChatSidebar
