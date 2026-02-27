@@ -124,7 +124,7 @@ const Apps = (() => {
     }
 
     if (typeof cloudinary === 'undefined') {
-      alert('[NEXUS OS] Cloudinary widget não carregado. Verifique a conexão.');
+      showModal({ title: 'SISTEMA', body: 'Cloudinary widget não carregado. Verifique a conexão.' });
       return;
     }
 
@@ -339,9 +339,15 @@ const Apps = (() => {
     const url = $('vid-url')?.value?.trim();
     const date = $('vid-date')?.value?.trim();
     const desc = $('vid-desc')?.value?.trim();
-    if (!title || !url) { alert('TÍTULO e URL são obrigatórios.'); return; }
+    if (!title || !url) {
+      showModal({ title: 'CAMPOS OBRIGATÓRIOS', body: 'TÍTULO e URL são necessários para registrar o vídeo.' });
+      return;
+    }
     const ytId = getYouTubeId(url);
-    if (!ytId) { alert('URL do YouTube inválida. Use: youtube.com/watch?v=ID'); return; }
+    if (!ytId) {
+      showModal({ title: 'URL INVÁLIDA', body: 'A URL do YouTube informada não é válida. Use o formato: youtube.com/watch?v=ID' });
+      return;
+    }
 
     const db = Auth.db();
     if (db) {
@@ -765,8 +771,10 @@ const Apps = (() => {
   }
 
   function composeEmail() {
-    const db = Auth.db();
-    if (!db) { alert('MODO DEMO: E-MAIL INDISPONÍVEL'); return; }
+    if (!db) {
+      showModal({ title: 'ACESSO NEGADO', body: 'MODO DEMO: Conectividade com o servidor de e-mail indisponível.' });
+      return;
+    }
 
     const overlay = document.createElement('div');
     overlay.className = 'app-overlay modal-overlay-active';
@@ -807,7 +815,10 @@ const Apps = (() => {
 
     let attachments = [];
     $('btn-em-attach')?.addEventListener('click', () => {
-      if (typeof cloudinary === 'undefined') { alert('Cloudinary não carregado.'); return; }
+      if (typeof cloudinary === 'undefined') {
+        showModal({ title: 'SISTEMA', body: 'O módulo Cloudinary não foi detectado. Verifique sua conexão com o Mainframe.' });
+        return;
+      }
 
       console.log('[CLOUDINARY] Abrindo widget...', NEXUS_CONFIG.cloudinary);
 
@@ -859,7 +870,10 @@ const Apps = (() => {
       const subject = $('em-subject').value.trim();
       const body = $('em-body').value.trim();
       const ud = typeof UNIVERSE_DATE !== 'undefined' ? UNIVERSE_DATE.format() : '??/??/????';
-      if (!subject || !body) { alert('ASSUNTO e MENSAGEM obrigatórios.'); return; }
+      if (!subject || !body) {
+        showModal({ title: 'CAMPOS REQUERIDOS', body: 'ASSUNTO e MENSAGEM são obrigatórios para a transmissão.' });
+        return;
+      }
 
       const payload = {
         sender: Auth.getProfile()?.display_name || 'AGENTE',
@@ -1919,10 +1933,16 @@ const Apps = (() => {
   }
 
   async function deleteItem(id) {
-    if (!confirm('APAGAR ESTE ITEM PERMANENTEMENTE?')) return;
-    const db = Auth.db();
-    await db.from('store_items').delete().eq('id', id);
-    loadAdminItems();
+    showModal({
+      type: 'confirm',
+      title: 'CONFIRMAÇÃO',
+      body: 'APAGAR ESTE ITEM PERMANENTEMENTE DO BANCO DE DADOS?',
+      onConfirm: async () => {
+        const db = Auth.db();
+        await db.from('store_items').delete().eq('id', id);
+        loadAdminItems();
+      }
+    });
   }
 
   /* ── Combate Admin ─────────────────────────────────────── */
@@ -2247,14 +2267,14 @@ const Apps = (() => {
     Boot.playBeep(440, 0.05, 0.1);
 
     overlay.querySelector('#modal-confirm').onclick = () => {
-      overlay.remove();
       if (options.onConfirm) options.onConfirm();
+      overlay.remove();
     };
 
     if (isConfirm && overlay.querySelector('#modal-cancel')) {
       overlay.querySelector('#modal-cancel').onclick = () => {
-        overlay.remove();
         if (options.onCancel) options.onCancel();
+        overlay.remove();
       };
     }
   }
@@ -2378,21 +2398,27 @@ const Apps = (() => {
     if (!list) return;
     const db = Auth.db();
     if (!db) return;
+    const myId = Auth.getUser()?.id;
 
+    // Simplificamos: pegamos todas as salas onde o usuário é membro.
+    // O RLS já cuida de filtrar 'general' ou salas onde o user_id existe em chat_room_members.
     const { data: rooms } = await db.from('chat_rooms')
-      .select(`*, chat_room_members!inner(user_id)`)
-      .or(`type.eq.general, user_id.eq.${Auth.getUser()?.id}`)
+      .select('*, chat_room_members!inner(user_id)')
       .order('type', { ascending: false });
 
-    // Filtragem manual pq o 'or' com join no Supabase pode ser chato
     const userRooms = rooms || [];
 
     list.innerHTML = userRooms.map(r => {
-      const icon = r.type === 'general' ? '📡' : (r.type === 'dm' ? '👤' : '👥');
+      const icon = r.icon || (r.type === 'general' ? '📡' : (r.type === 'dm' ? '👤' : '👥'));
+      const isActive = r.id === activeRoomId;
+      const isAdmin = Auth.isAdmin();
+      const isOwner = r.created_by === myId || isAdmin;
+
       return `
-        <div class="chat-room-item ${r.id === activeRoomId ? 'active' : ''}" onclick="Apps.switchRoom('${r.id}', '${r.name}')">
+        <div class="chat-room-item ${isActive ? 'active' : ''}" onclick="Apps.switchRoom('${r.id}', '${r.name}')">
           <span class="room-icon">${icon}</span>
-          <span>${r.name}</span>
+          <span class="room-name" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${Utils.esc(r.name)}</span>
+          ${(r.type !== 'general' && isOwner) ? `<button class="delete-btn" onclick="event.stopPropagation(); Apps.deleteRoom('${r.id}')" title="Deletar Sala">×</button>` : ''}
         </div>`;
     }).join('');
   }
@@ -2415,16 +2441,72 @@ const Apps = (() => {
       if (backdrop) backdrop.style.display = 'none';
     }
 
-    // Admin features for General Room
+    // Admin features and Ownership actions
     const adminActions = $('chat-admin-actions');
     if (adminActions) {
-      if (id === '00000000-0000-0000-0000-000000000001' && Auth.getProfile()?.role === 'admin') {
-        adminActions.innerHTML = `<button class="btn btn-danger" onclick="Apps.clearGeneralChat()" style="font-size:9px; padding:4px 8px;">[ LIMPAR CANAL ]</button>`;
-      } else {
-        adminActions.innerHTML = '';
+      adminActions.innerHTML = '';
+      const db = Auth.db();
+
+      // Busca dados da sala para checar ownership
+      const { data: roomInfo } = await db.from('chat_rooms').select('created_by, type').eq('id', id).single();
+      const isOwner = roomInfo?.created_by === Auth.getUser()?.id;
+      const isAdmin = Auth.isAdmin();
+
+      // Caso 1: Canal Omega (Geral) -> Só ADM limpa
+      if (id === '00000000-0000-0000-0000-000000000001') {
+        if (isAdmin) {
+          adminActions.innerHTML = `<button class="btn btn-danger btn-chat-action" onclick="Apps.clearChat('${id}')">[ LIMPAR CANAL ]</button>`;
+        }
+      }
+      // Caso 2: Outras salas -> Dono ou Admin limpam
+      else if (isOwner || isAdmin) {
+        adminActions.innerHTML = `
+          <button class="btn btn-danger btn-chat-action" onclick="Apps.clearChat('${id}')">[ LIMPAR CHAT ]</button>
+          <button class="btn btn-danger btn-chat-action" onclick="Apps.deleteRoom('${id}')">[ DELETAR SALA ]</button>
+        `;
       }
     }
   }
+
+  async function clearChat(roomId) {
+    showModal({
+      type: 'confirm',
+      title: 'CONFIRMAÇÃO',
+      body: 'DESEJA LIMPAR TODAS AS MENSAGENS DESTE CANAL?',
+      onConfirm: async () => {
+        const db = Auth.db();
+        const { error } = await db.from('chat_messages').delete().eq('room_id', roomId);
+
+        if (error) {
+          showModal({ title: 'ERRO', body: 'Falha ao limpar chat: ' + error.message });
+        } else {
+          loadChatMessages(roomId);
+        }
+      }
+    });
+  }
+
+  async function deleteRoom(roomId) {
+    showModal({
+      type: 'confirm',
+      title: 'ERRO CRÍTICO',
+      body: 'DESEJA EXCLUIR PERMANENTEMENTE ESTA SALA E TODAS AS MENSAGENS?',
+      onConfirm: async () => {
+        const db = Auth.db();
+        const { error } = await db.from('chat_rooms').delete().eq('id', roomId);
+
+        if (error) {
+          showModal({ title: 'ERRO', body: 'Falha ao excluir sala: ' + error.message });
+        } else {
+          activeRoomId = '00000000-0000-0000-0000-000000000001';
+          switchRoom(activeRoomId, 'Canal Omega');
+        }
+      }
+    });
+  }
+
+  const GROUP_ICONS = ['🛡️', '⚡', '🌌', '📜', '⚖️', '🗝️', '🎭', '🔮', '🧬', '🛸', '🛰️', '🧱', '⛩️', '🗡️', '🧿', '♟️'];
+  let _selectedGroupIcon = '👥';
 
   async function loadChatMessages(roomId) {
     const container = $('chat-messages-container');
@@ -2462,8 +2544,8 @@ const Apps = (() => {
 
     const msgEl = document.createElement('div');
     msgEl.setAttribute('data-msg-id', msg.id || '');
-    msgEl.style.cssText = `max-width:85%; padding:10px 14px; border:1px solid var(--border-dim); font-family:var(--font-code); margin-bottom:6px; position:relative;
-      ${isMe ? 'align-self:flex-end; background:rgba(0,255,65,0.08); border-color:var(--green); border-right:4px solid var(--green);' : 'align-self:flex-start; background:rgba(255,183,0,0.05); border-left:4px solid var(--amber);'}`;
+    msgEl.style.cssText = `max-width: 85%; padding: 10px 14px; border: 1px solid var(--border-dim); font-family: var(--font-code); margin-bottom: 6px; position: relative;
+      ${isMe ? 'align-self:flex-end; background:rgba(0,255,65,0.08); border-color:var(--green); border-right:4px solid var(--green);' : 'align-self:flex-start; background:rgba(255,183,0,0.05); border-left:4px solid var(--amber);'} `;
 
     const timestamp = msg.created_at ? new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'AGORA';
 
@@ -2480,8 +2562,7 @@ const Apps = (() => {
           ${isMe ? `<span class="msg-status ${statusClass}">${statusIcon}</span>` : ''}
         </div>
       </div>
-      <div style="color:var(--green); font-size:14px; word-break:break-word; line-height:1.4;">${Utils.esc(msg.text)}</div>
-    `;
+      <div style="color:var(--green); font-size:14px; word-break:break-word; line-height:1.4;">${Utils.esc(msg.text)}</div>`;
 
     container.appendChild(msgEl);
     scrollToBottom();
@@ -2561,7 +2642,7 @@ const Apps = (() => {
           <span class="chat-online-dot pulse"></span>
           <span title="${Utils.esc(u.display_name)}">${Utils.esc(u.display_name)}</span>
         </div>
-      `).join('');
+    `).join('');
   }
 
   function subscribePresence() {
@@ -2574,62 +2655,307 @@ const Apps = (() => {
       .subscribe();
   }
 
-  /* ── Criação de RM/Grupos ────────────────────────────────── */
+  /* ── Criação de DM/Grupos ────────────────────────────────── */
+  // Estado do press-and-hold por usuário (key = userId)
+  const _dmHoldState = {};
+
   async function openNewDM() {
     const db = Auth.db();
+    if (!db) return;
     const { data: users } = await db.from('profiles').select('id, display_name, username').order('display_name');
     const myId = Auth.getUser()?.id;
 
-    const options = (users || [])
-      .filter(u => u.id !== myId)
-      .map(u => `<button class="btn" onclick="Apps.createDM('${u.id}', '${u.display_name}')" style="width:100%; margin-bottom:5px;">[ CONECTAR ] ${u.display_name}</button>`)
-      .join('');
+    const agents = (users || []).filter(u => u.id !== myId);
+
+    const bodyHTML = agents.length === 0
+      ? '<div style="color:var(--green-mid); font-family:var(--font-code); padding:12px;">NENHUM OUTRO AGENTE DISPONÍVEL.</div>'
+      : agents.map(u => {
+        const name = u.display_name || u.username || 'AGENTE';
+        return `
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:8px 4px; border-bottom:1px solid var(--border-dim); gap:12px;">
+            <span style="font-family:var(--font-code); font-size:13px; color:var(--green); flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${Utils.esc(name)}</span>
+            <button class="btn dm-connect-btn" data-uid="${u.id}" data-name="${Utils.esc(name)}" 
+                    style="position:relative; overflow:hidden; min-width:130px; padding:8px 14px; font-size:11px; letter-spacing:1px; flex-shrink:0; user-select:none;">
+              [CONECTAR]
+              <div class="dm-hold-bar-container" style="position:absolute; bottom:0; left:0; height:3px; width:100%; display:flex; gap:2px; padding:0 2px; box-sizing:border-box;"></div>
+            </button>
+          </div>`;
+      }).join('');
 
     showModal({
       title: 'INICIAR TRANSMISSÃO PRIVADA',
-      body: `<div style="max-height:300px; overflow-y:auto;">${options || 'NENHUM OUTRO AGENTE ONLINE.'}</div>`,
+      body: `<div style="max-height:360px; overflow-y:auto; padding:4px 0;">${bodyHTML}</div>`,
       confirmText: 'VOLTAR'
+    });
+
+    // Adicionar os event listeners APÓS o modal estar no DOM
+    setTimeout(() => _attachDMHoldListeners(), 50);
+  }
+
+  function _attachDMHoldListeners() {
+    document.querySelectorAll('.dm-connect-btn').forEach(btn => {
+      const uid = btn.dataset.uid;
+      const name = btn.dataset.name;
+
+      // Inicializa o estado deste agente se não existir
+      if (!_dmHoldState[uid]) _dmHoldState[uid] = { progress: 0, animId: null, lastTs: null };
+
+      const state = _dmHoldState[uid];
+
+      // Renderiza as barras com o progresso salvo
+      _dmRenderBars(btn, state.progress);
+
+      const startHold = (e) => {
+        if (state.isHolding) return;
+        state.isHolding = true;
+
+        // Cancela qualquer retração em andamento e começa fresco
+        _dmStopAnimate(state);
+        btn.classList.add('no-transition');
+        state.lastTs = performance.now();
+        _dmAnimate(btn, uid, name, state);
+
+        // Handler global para soltar o mouse/touch fora do botão
+        const globalEnd = (ev) => {
+          if (!state.isHolding) return;
+          state.isHolding = false;
+          window.removeEventListener('mouseup', globalEnd);
+          window.removeEventListener('touchend', globalEnd);
+
+          _dmStopAnimate(state);
+          if (state.progress < 1) _dmRetract(btn, state);
+        };
+
+        window.addEventListener('mouseup', globalEnd);
+        window.addEventListener('touchend', globalEnd);
+      };
+
+      btn.addEventListener('mousedown', startHold);
+      btn.addEventListener('touchstart', startHold, { passive: false });
     });
   }
 
+  const DM_HOLD_DURATION = 2000; // ms para completar
+  const BAR_COUNT = 12;
+
+  function _dmRenderBars(row, progress) {
+    if (!row) return;
+    const container = row.querySelector('.dm-hold-bar-container');
+    if (!container) return;
+
+    // Proteção contra valores estranhos (NaN, strings, etc)
+    const progNum = parseFloat(progress) || 0;
+    const filled = Math.max(0, Math.min(BAR_COUNT, Math.round(progNum * BAR_COUNT)));
+
+    // Limpa conteúdo anterior limpamente para evitar vazamentos/anomalias
+    if (container.children.length !== BAR_COUNT) {
+      container.innerHTML = Array.from({ length: BAR_COUNT }, (_, i) => {
+        return `<div style="flex: 1; height: 100%; transition:background 0.05s; border-radius:1px;"></div>`;
+      }).join('');
+    }
+
+    const bars = container.querySelectorAll('div');
+    bars.forEach((bar, i) => {
+      const on = i < filled;
+      bar.style.background = on ? 'var(--green)' : 'rgba(0,255,65,0.12)';
+      bar.style.boxShadow = on ? '0 0 4px var(--green-glow)' : 'none';
+    });
+  }
+
+  function _dmAnimate(row, uid, name, state) {
+    const tick = (ts) => {
+      const dt = ts - (state.lastTs || ts);
+      state.lastTs = ts;
+      state.progress = Math.min(1, state.progress + dt / DM_HOLD_DURATION);
+
+      _dmRenderBars(row, state.progress);
+
+      // Tremor dinâmico: expoente baixo para começar forte desde o início
+      const shakeIntensity = Math.pow(state.progress, 0.5) * 32;
+      const dx = (Math.random() - 0.5) * shakeIntensity;
+      const dy = (Math.random() - 0.5) * shakeIntensity * 0.6;
+      row.style.transform = `translate(${dx}px, ${dy}px)`;
+
+      // Som sincronizado: tick a cada segmento preenchido
+      const currentFilled = Math.round(state.progress * BAR_COUNT);
+      if (currentFilled !== (state._lastFilled || 0)) {
+        state._lastFilled = currentFilled;
+        const freq = 200 + currentFilled * 80;
+        Boot.playBeep(freq, 0.04, 0.06);
+      }
+
+      if (state.progress >= 1) {
+        // COMPLETO!
+        row.style.transform = '';
+        row.classList.remove('no-transition');
+        _dmStopAnimate(state);
+        state.progress = 0;
+        state._lastFilled = 0;
+        Boot.playBeep(880, 0.08, 0.3);
+        setTimeout(() => Boot.playBeep(1100, 0.06, 0.2), 200);
+
+        // Se tiver ação customizada (ex: grupo), usa ela; senão usa createDM
+        if (typeof row._groupAction === 'function') {
+          row._groupAction();
+        } else {
+          // Garante fechar APENAS modais de diálogo, não a janela do app
+          document.querySelectorAll('.modal-overlay-active').forEach(el => el.remove());
+          createDM(uid, name);
+        }
+        return;
+      }
+
+      state.animId = requestAnimationFrame(tick);
+    };
+    state.animId = requestAnimationFrame(tick);
+  }
+
+
+  function _dmStopAnimate(state) {
+    if (state.animId) {
+      cancelAnimationFrame(state.animId);
+      state.animId = null;
+    }
+  }
+
+  function _dmRetract(row, state) {
+    const RETRACT_DURATION = 800; // Um pouco mais lento para ver o tremor diminuir
+    let startProgress = state.progress;
+    let startTs = null;
+
+    const retractTick = (ts) => {
+      if (!startTs) startTs = ts;
+      const elapsed = ts - startTs;
+      const ratio = Math.min(1, elapsed / RETRACT_DURATION);
+      state.progress = startProgress * (1 - ratio);
+
+      _dmRenderBars(row, state.progress);
+
+      // Tremor diminuindo conforme a barra retrai
+      const shakeIntensity = Math.pow(state.progress, 0.5) * 20;
+      if (state.progress > 0.05) {
+        const dx = (Math.random() - 0.5) * shakeIntensity;
+        const dy = (Math.random() - 0.5) * shakeIntensity * 0.5;
+        row.style.transform = `translate(${dx}px, ${dy}px)`;
+      } else {
+        row.style.transform = '';
+      }
+
+      if (ratio < 1) {
+        state.animId = requestAnimationFrame(retractTick);
+      } else {
+        state.progress = 0;
+        state._lastFilled = 0;
+        state.animId = null;
+        _dmRenderBars(row, 0);
+        row.style.transform = '';
+        row.classList.remove('no-transition');
+      }
+    };
+    state.animId = requestAnimationFrame(retractTick);
+  }
+
+
   async function createDM(targetUserId, targetName) {
     const db = Auth.db();
+    if (!db) return;
     const myId = Auth.getUser()?.id;
+    if (!myId) return;
 
-    // Check if DM already exists
-    const { data: existing } = await db.from('chat_rooms')
-      .select('id, name')
-      .eq('type', 'dm')
-      .contains('id', db.from('chat_room_members').select('room_id').eq('user_id', myId)) // Simplificação conceitual
+    // Fechar o modal aberto antes de prosseguir (limpeza seletiva de modais)
+    document.querySelectorAll('.modal-overlay-active').forEach(el => el.remove());
 
-    // Na verdade, vamos apenas criar um novo ou buscar o existente via lógica de membros
-    // Para simplificar no RPG: cria um novo private room com nome dos dois
+    // Verificar se já existe um DM entre os dois usuários
+    const { data: myRooms } = await db.from('chat_room_members')
+      .select('room_id')
+      .eq('user_id', myId);
+
+    const myRoomIds = (myRooms || []).map(r => r.room_id);
+
+    let existingRoomId = null;
+    if (myRoomIds.length > 0) {
+      const { data: shared } = await db.from('chat_room_members')
+        .select('room_id')
+        .eq('user_id', targetUserId)
+        .in('room_id', myRoomIds);
+
+      if (shared && shared.length > 0) {
+        // Verificar se é do tipo 'dm'
+        const { data: dmRoom } = await db.from('chat_rooms')
+          .select('id, name')
+          .eq('type', 'dm')
+          .in('id', shared.map(r => r.room_id))
+          .maybeSingle();
+        if (dmRoom) existingRoomId = dmRoom.id;
+      }
+    }
+
+    if (existingRoomId) {
+      // DM já existe, apenas navegar para ele
+      const { data: room } = await db.from('chat_rooms').select('id, name').eq('id', existingRoomId).single();
+      if (room) switchRoom(room.id, room.name);
+      return;
+    }
+
+    // Criar novo DM via RPC (bypassa RLS)
     const roomName = `DM: ${targetName}`;
-    const { data: newRoom } = await db.from('chat_rooms').insert({ name: roomName, type: 'dm' }).select().single();
+    const { data: newRoomId, error } = await db.rpc('create_chat_room', {
+      p_name: roomName,
+      p_type: 'dm'
+    });
 
-    if (newRoom) {
+    if (error) {
+      showModal({ title: 'ERRO', body: 'Falha ao criar a transmissão privada: ' + error.message });
+      return;
+    }
+
+    if (newRoomId) {
       await db.from('chat_room_members').insert([
-        { room_id: newRoom.id, user_id: myId },
-        { room_id: newRoom.id, user_id: targetUserId }
+        { room_id: newRoomId, user_id: myId },
+        { room_id: newRoomId, user_id: targetUserId }
       ]);
-      switchRoom(newRoom.id, newRoom.name);
-      $('app-overlay')?.remove(); // Fecha o modal
+      switchRoom(newRoomId, roomName);
     }
   }
 
   async function openNewGroup() {
     const db = Auth.db();
+    if (!db) return;
     const { data: users } = await db.from('profiles').select('id, display_name, username').order('display_name');
     const myId = Auth.getUser()?.id;
 
     const userList = (users || [])
       .filter(u => u.id !== myId)
-      .map(u => `
+      .map(u => {
+        const name = u.display_name || u.username || 'AGENTE';
+        return `
         <label style="display:flex; align-items:center; gap:10px; padding:8px; border-bottom:1px solid var(--border-dim); cursor:pointer;">
           <input type="checkbox" class="group-member-check" value="${u.id}">
-          <span style="font-family:var(--font-code); color:var(--green);">${u.display_name}</span>
+          <span style="font-family:var(--font-code); color:var(--green);">${Utils.esc(name)}</span>
         </label>
-      `).join('');
+      `;
+      }).join('');
+
+    // Botão de criação com press-and-hold embutido no body
+    const holdBtnHTML = `
+      <button id="group-create-hold-btn" class="btn" style="
+        position:relative; overflow:hidden; width:100%; margin-top:16px;
+        padding:14px 16px; font-family:var(--font-code); font-size:12px;
+        letter-spacing:2px; background:rgba(0,60,0,0.4);
+        border-color:var(--green-mid); color:var(--green);
+        user-select:none; cursor:pointer;
+      ">
+        SEGURAR PARA CRIAR O GRUPO
+        <div class="dm-hold-bar-container" style="
+          position:absolute; bottom:0; left:0; height:4px; width:100%;
+          display:flex; gap:2px; padding:0 2px; box-sizing:border-box;
+          pointer-events:none;
+        "></div>
+      </button>`;
+
+    const iconHtml = GROUP_ICONS.map(icon => `
+      <div class="icon-opt ${icon === _selectedGroupIcon ? 'selected' : ''}" onclick="Apps._selectGroupIcon(this, '${icon}')">${icon}</div>
+    `).join('');
 
     showModal({
       title: 'FORMAR GRUPO DE OPERAÇÕES',
@@ -2638,30 +2964,96 @@ const Apps = (() => {
            <label style="font-size:10px; color:var(--green-dark);">NOME DO GRUPO</label>
            <input type="text" id="new-group-name" class="input-field" placeholder="Ex: ESQUADRÃO OMEGA">
         </div>
+        <div style="margin-bottom:10px; font-size:11px; color:var(--green-dark);">ÍCONE REPRESENTATIVO:</div>
+        <div class="icon-selector">${iconHtml}</div>
         <div style="max-height:200px; overflow-y:auto; border:1px solid var(--border-dim); padding:5px;">
-           ${userList}
+           ${userList || '<div style="padding:12px; color:var(--green-mid); font-family:var(--font-code);">NENHUM OUTRO AGENTE.</div>'}
         </div>
+        ${holdBtnHTML}
       `,
-      confirmText: 'CRIAR GRUPO',
+      // Sem botão de confirmar — apenas VOLTAR
       type: 'confirm',
       cancelText: 'VOLTAR',
-      onConfirm: async () => {
-        const name = $('new-group-name').value.trim() || 'NOVO GRUPO';
+      confirmText: '', // Oculto via CSS abaixo
+    });
+
+    // Esconder o botão "OK" vazio do footer padrão
+    setTimeout(() => {
+      const confirmBtn = document.getElementById('modal-confirm');
+      if (confirmBtn) confirmBtn.style.display = 'none';
+
+      // Inicializar o press-and-hold no botão do grupo
+      const holdBtn = document.getElementById('group-create-hold-btn');
+      if (!holdBtn) return;
+
+      const stateKey = '__group';
+      if (!_dmHoldState[stateKey]) _dmHoldState[stateKey] = { progress: 0, animId: null, lastTs: null };
+      const state = _dmHoldState[stateKey];
+      state.progress = 0; // Reseta ao abrir o modal
+      state._lastFilled = 0;
+      _dmRenderBars(holdBtn, 0);
+
+      const startHold = (e) => {
+        if (state.isHolding) return;
+        state.isHolding = true;
+
+        // Cancela qualquer retração em andamento e começa fresco
+        _dmStopAnimate(state);
+        holdBtn.classList.add('no-transition');
+        state.lastTs = performance.now();
+        _dmAnimate(holdBtn, stateKey, '__group_action', state);
+
+        const globalEnd = (ev) => {
+          if (!state.isHolding) return;
+          state.isHolding = false;
+          window.removeEventListener('mouseup', globalEnd);
+          window.removeEventListener('touchend', globalEnd);
+
+          _dmStopAnimate(state);
+          if (state.progress < 1) _dmRetract(holdBtn, state);
+        };
+
+        window.addEventListener('mouseup', globalEnd);
+        window.addEventListener('touchend', globalEnd);
+      };
+
+      // Override da ação de conclusão para este botão específico
+      holdBtn._groupAction = async () => {
+        const nameInput = document.getElementById('new-group-name');
+        const name = (nameInput ? nameInput.value.trim() : '') || 'NOVO GRUPO';
         const checks = document.querySelectorAll('.group-member-check:checked');
         const members = Array.from(checks).map(c => c.value);
         members.push(myId);
 
-        if (members.length < 2) return;
-
-        const { data: room } = await db.from('chat_rooms').insert({ name, type: 'group' }).select().single();
-        if (room) {
-          const membersToInsert = members.map(uid => ({ room_id: room.id, user_id: uid }));
-          await db.from('chat_room_members').insert(membersToInsert);
-          switchRoom(room.id, room.name);
+        if (members.length < 2) {
+          document.querySelectorAll('.modal-overlay-active').forEach(el => el.remove());
+          showModal({ title: 'AVISO', body: 'Selecione ao menos um membro para o grupo.' });
+          return;
         }
-      }
-    });
+
+        document.querySelectorAll('.modal-overlay-active').forEach(el => el.remove());
+        const { data: newRoomId, error } = await db.rpc('create_chat_room', {
+          p_name: name,
+          p_type: 'group',
+          p_icon: _selectedGroupIcon
+        });
+
+        if (error) {
+          showModal({ title: 'ERRO', body: 'Falha ao criar o grupo: ' + error.message });
+          return;
+        }
+        if (newRoomId) {
+          const membersToInsert = members.map(uid => ({ room_id: newRoomId, user_id: uid }));
+          await db.from('chat_room_members').insert(membersToInsert);
+          switchRoom(newRoomId, name);
+        }
+      };
+
+      holdBtn.addEventListener('mousedown', startHold);
+      holdBtn.addEventListener('touchstart', startHold, { passive: false });
+    }, 50);
   }
+
 
   async function clearGeneralChat() {
     showModal({
@@ -3649,6 +4041,13 @@ const Apps = (() => {
   }
 
 
+  function _selectGroupIcon(el, icon) {
+    document.querySelectorAll('.icon-opt').forEach(opt => opt.classList.remove('selected'));
+    el.classList.add('selected');
+    _selectedGroupIcon = icon;
+    Boot.playBeep(1200, 0.02, 0.05);
+  }
+
   return {
     render, init,
     openLightbox, editArtwork, deleteArtwork, openEmail, deleteEmail,
@@ -3660,7 +4059,8 @@ const Apps = (() => {
     deleteItem, selectCombatTarget, toggleEquip, handleItemClick, useItem, dropItem, sellItem,
     saveCombatBio, saveCombatVitals, saveCombatMental, saveCombatAttrs, modVital, modSanity, giveLoot,
     deleteVaultItem, openPadlock, closePadlock, submitPadlock, _padlockType, _padlockBackspace,
-    openNewDM, openNewGroup, createDM, switchRoom, clearGeneralChat, toggleChatSidebar
+    openNewDM, openNewGroup, createDM, switchRoom, clearGeneralChat, toggleChatSidebar,
+    clearChat, deleteRoom, _selectGroupIcon
   };
 
 })();

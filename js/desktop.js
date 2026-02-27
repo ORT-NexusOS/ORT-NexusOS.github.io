@@ -130,7 +130,7 @@ const Desktop = (() => {
         { id: 'map', icon: '🌌', label: 'Mapa\nGaláctico', module: 'map' },
         { id: 'notepad', icon: '📝', label: 'Bloco de\nNotas', module: 'notepad' },
         { id: 'stats', icon: '👤', label: 'Status\nAgente', module: 'stats' },
-        { id: 'inventory', icon: '🎒', label: 'Inven-\ntário', module: 'inventory' },
+        { id: 'inventory', icon: '🎒', label: 'Inventário', module: 'inventory' },
         { id: 'vault', icon: '🔒', label: 'Cofre\nO.R.T.', module: 'vault' },
         { id: 'calendar', icon: '📅', label: 'Linha do\nTempo', module: 'calendar' },
         { id: 'terminal', icon: '💻', label: 'Terminal\nCLI', module: 'terminal' },
