@@ -2,6 +2,27 @@
    NEXUS OS — Desktop & Application Styles
    ============================================================ */
 
+/* ── Ship App Tabs ───────────────────────────────────────── */
+.btn-tab {
+    font-size: 11px;
+    padding: 4px 12px;
+    border-color: var(--border-dim);
+    color: var(--text-dim);
+    transition: all 0.2s ease;
+}
+
+.btn-tab.active {
+    border-color: var(--green);
+    color: var(--green);
+    box-shadow: 0 0 8px var(--green-glow);
+    text-shadow: 0 0 6px var(--green);
+}
+
+.btn-tab:hover:not(.active) {
+    border-color: var(--green-mid);
+    color: var(--green-mid);
+}
+
 /* ── Desktop Layout ──────────────────────────────────────── */
 #screen-desktop {
     position: fixed;
@@ -177,15 +198,85 @@
     margin-top: 24px;
     display: flex;
     justify-content: center;
+    perspective: 1000px;
 }
 
-.agent-ascii {
+.data-stream-container {
+    width: 320px;
+    height: 140px;
+    background: rgba(0, 20, 0, 0.4);
+    border: 1px solid var(--border-dim);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    box-shadow: inset 0 0 20px rgba(0, 255, 65, 0.1);
+}
+
+.data-stream-content {
     font-family: var(--font-code);
     font-size: 11px;
     color: var(--green-mid);
-    line-height: 1.25;
-    opacity: 0.6;
+    line-height: 1.5;
     white-space: pre;
+    animation: stream-scroll 10s linear infinite;
+    text-shadow: 0 0 5px var(--green-glow2);
+}
+
+.data-stream-line {
+    display: block;
+    letter-spacing: 1px;
+    opacity: 0.8;
+}
+
+.data-stream-line.highlight {
+    color: var(--green);
+    text-shadow: 0 0 8px var(--green);
+    opacity: 1;
+}
+
+@keyframes stream-scroll {
+    0% {
+        transform: translateY(0);
+    }
+
+    100% {
+        transform: translateY(-50%);
+    }
+}
+
+.data-stream-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(to bottom,
+            var(--bg-panel) 0%,
+            transparent 15%,
+            transparent 85%,
+            var(--bg-panel) 100%);
+    z-index: 2;
+}
+
+.data-stream-scanline {
+    position: absolute;
+    width: 100%;
+    height: 2px;
+    background: rgba(0, 255, 65, 0.15);
+    top: 0;
+    left: 0;
+    animation: stream-scan 4s linear infinite;
+    z-index: 3;
+}
+
+@keyframes stream-scan {
+    0% {
+        top: -2px;
+    }
+
+    100% {
+        top: 100%;
+    }
 }
 
 /* ── Notifications ───────────────────────────────────────── */
@@ -730,7 +821,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    display: none;
+    filter: sepia(1) hue-rotate(60deg) contrast(1.2);
 }
 
 .mugshot-placeholder {
@@ -1521,12 +1612,13 @@
 
     .app-window {
         width: 100vw !important;
-        height: 100vh !important;
-        max-height: 100vh !important;
+        height: 100dvh !important;
+        max-height: 100dvh !important;
         top: 0 !important;
         left: 0 !important;
         transform: none !important;
         border: none;
+        padding-top: env(safe-area-inset-top, 0px) !important;
     }
 
     .app-titlebar {
@@ -1625,10 +1717,6 @@
     #icon-grid {
         grid-template-columns: repeat(4, 1fr);
         max-height: 150px;
-    }
-
-    .header-logo-block .logo-reflection {
-        display: none;
     }
 }
 
@@ -2818,4 +2906,686 @@
 
 .dm-hold-bar-container div {
     border-radius: 1px;
+}
+
+/* ── Galactic Catalog ─────────────────────────────────── */
+.catalog-layout {
+    display: flex;
+    height: 100%;
+    background: var(--bg-deep);
+    overflow: hidden;
+    position: relative;
+    z-index: 10;
+}
+
+.catalog-sidebar {
+    width: 260px;
+    border-right: 1px solid var(--border-dim);
+    display: flex;
+    flex-direction: column;
+    background: rgba(0, 20, 0, 0.4);
+    backdrop-filter: blur(5px);
+}
+
+.catalog-sidebar-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--border-dim);
+    background: rgba(0, 255, 65, 0.05);
+}
+
+.catalog-search {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid var(--border-dim);
+    color: var(--green);
+    padding: 8px 12px;
+    font-family: var(--font-code);
+    font-size: 11px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.catalog-search:focus {
+    border-color: var(--green);
+    box-shadow: 0 0 10px rgba(0, 255, 65, 0.1);
+}
+
+.catalog-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 0;
+}
+
+.catalog-region-group {
+    margin-bottom: 20px;
+}
+
+.catalog-region-title {
+    padding: 8px 16px;
+    font-family: var(--font-code);
+    font-size: 10px;
+    color: var(--green-dark);
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    background: rgba(0, 255, 65, 0.02);
+}
+
+.catalog-item {
+    padding: 10px 16px 10px 32px;
+    font-size: 14px;
+    color: var(--green-mid);
+    cursor: pointer;
+    transition: all 0.2s;
+    border-left: 3px solid transparent;
+    position: relative;
+    font-family: var(--font-main);
+}
+
+.catalog-item:hover {
+    background: rgba(0, 255, 65, 0.1);
+    color: var(--green);
+}
+
+.catalog-item.active {
+    background: rgba(0, 255, 65, 0.15);
+    color: var(--green);
+    border-left-color: var(--green);
+    text-shadow: 0 0 8px var(--green-glow);
+}
+
+.catalog-item::before {
+    content: '▶';
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 8px;
+    opacity: 0.3;
+    transition: opacity 0.2s;
+}
+
+.catalog-item:hover::before,
+.catalog-item.active::before {
+    opacity: 1;
+}
+
+.catalog-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 30px 40px;
+    overflow-y: auto;
+    background: radial-gradient(circle at center, rgba(0, 40, 0, 0.4) 0%, transparent 70%);
+}
+
+.planet-visual-container {
+    height: 280px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 20px;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.planet-svg-wrapper {
+    width: 240px;
+    height: 240px;
+    filter: drop-shadow(0 0 40px rgba(0, 255, 65, 0.15));
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.planet-gif-visual {
+    width: 200px;
+    height: 200px;
+    border-radius: 50%;
+    object-fit: cover;
+    box-shadow:
+        inset 0 0 50px rgba(0, 0, 0, 0.9),
+        0 0 30px rgba(0, 255, 65, 0.2);
+    filter: brightness(0.9) contrast(1.1);
+}
+
+.planet-info-grid {
+    display: flex;
+    gap: 40px;
+    max-width: 1000px;
+    margin: 0 auto;
+    width: 100%;
+    align-items: flex-start;
+}
+
+.planet-info-main {
+    flex: 1.3;
+    min-width: 0;
+}
+
+.planet-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    background: rgba(0, 255, 65, 0.08);
+    border: 1px solid var(--green-dim);
+    color: var(--green);
+    font-family: var(--font-code);
+    font-size: 10px;
+    text-transform: uppercase;
+    margin-bottom: 24px;
+    letter-spacing: 3px;
+}
+
+.planet-description {
+    line-height: 1.8;
+    color: var(--green-mid);
+    font-size: 15px;
+    margin-bottom: 30px;
+    text-align: justify;
+}
+
+/* ============================================================
+   GALACTIC MAP — REDESIGN
+   ============================================================ */
+
+.map-container {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    height: 100%;
+    background: #000;
+    font-family: var(--font-code);
+    position: relative;
+    overflow: hidden;
+}
+
+/* -- Sidebar -- */
+.map-sidebar {
+    background: rgba(0, 15, 0, 0.95);
+    border-right: 1px solid var(--border-dim);
+    display: flex;
+    flex-direction: column;
+    z-index: 10;
+    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.5);
+}
+
+.sidebar-header {
+    padding: 25px 20px;
+    border-bottom: 1px solid var(--border-dim);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: var(--font-logo);
+    color: var(--green);
+    letter-spacing: 2px;
+    font-size: 14px;
+}
+
+.region-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 15px 0;
+}
+
+.region-item {
+    padding: 12px 20px;
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--green-mid);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: all 0.2s;
+    border-left: 3px solid transparent;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.region-item:hover {
+    background: rgba(0, 255, 65, 0.05);
+    color: var(--green);
+    border-left-color: var(--green);
+}
+
+.region-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    box-shadow: 0 0 8px currentColor;
+    flex-shrink: 0;
+}
+
+.map-search {
+    padding: 20px;
+    border-top: 1px solid var(--border-dim);
+    background: rgba(0, 10, 0, 0.5);
+}
+
+.map-search input {
+    width: 100%;
+    background: rgba(0, 30, 0, 0.3);
+    border: 1px solid var(--border-dim);
+    color: var(--green);
+    padding: 10px 14px;
+    font-family: var(--font-code);
+    font-size: 11px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.map-search input:focus {
+    border-color: var(--green);
+}
+
+/* -- Viewport -- */
+.map-viewport {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+        radial-gradient(circle at center, #001a00 0%, #000 80%),
+        url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h1v1H0z' fill='rgba(0,255,65,0.03)'/%3E%3C/svg%3E");
+    overflow: hidden;
+}
+
+#galaxySvg {
+    width: 95%;
+    height: 95%;
+    max-width: 900px;
+    filter: drop-shadow(0 0 20px rgba(0, 255, 65, 0.05));
+}
+
+.map-ring {
+    fill: none;
+    stroke: rgba(0, 255, 65, 0.08);
+    stroke-width: 1;
+    pointer-events: none;
+}
+
+.vale-silhouette {
+    transition: opacity 0.5s;
+    pointer-events: none;
+}
+
+.map-planet-dot {
+    cursor: pointer;
+    transition: r 0.2s, filter 0.2s, opacity 0.3s;
+}
+
+.map-planet-dot:hover {
+    r: 6;
+    filter: url(#glow) brightness(1.8);
+}
+
+.map-planet-label {
+    font-family: var(--font-code);
+    font-size: 9px;
+    fill: var(--green-mid);
+    pointer-events: none;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    opacity: 0.7;
+    transition: opacity 0.2s, fill 0.2s;
+}
+
+.map-planet-dot:hover+.map-planet-label {
+    opacity: 1;
+    fill: var(--green);
+}
+
+/* -- Zoom Controls -- */
+.map-controls {
+    position: absolute;
+    bottom: 25px;
+    right: 25px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 20;
+}
+
+#reset-zoom {
+    width: 38px;
+    height: 38px;
+    background: rgba(0, 15, 0, 0.8);
+    border: 1px solid var(--border-dim);
+    color: var(--green);
+    cursor: pointer;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    border-radius: 2px;
+}
+
+#reset-zoom:hover {
+    background: var(--green);
+    color: #000;
+    box-shadow: 0 0 15px var(--green);
+}
+
+/* -- Planet Viewer Overlay -- */
+.planet-viewer {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(15px);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.planet-viewer.hidden {
+    display: none;
+}
+
+.viewer-content {
+    width: 95%;
+    max-width: 1200px;
+    height: 94%;
+    max-height: 950px;
+    background: #050505;
+    border: 1px solid var(--green);
+    box-shadow: 0 0 120px rgba(0, 255, 65, 0.25);
+    position: relative;
+    padding: 70px 60px 50px;
+    border-radius: 2px;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    box-sizing: border-box;
+    backdrop-filter: blur(10px);
+}
+
+/* Fix for Close Button "Vortex" Bug */
+.close-viewer-wrapper {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    width: 50px;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 110;
+}
+
+.close-viewer {
+    background: none;
+    border: none;
+    color: var(--green-dim);
+    font-size: 32px;
+    cursor: pointer;
+    transition: color 0.3s, transform 0.3s;
+    line-height: 1;
+}
+
+.close-viewer-wrapper:hover .close-viewer {
+    color: var(--red-alert);
+    transform: rotate(90deg);
+}
+
+/* -- Detail View Internal -- */
+.planet-detail-view {
+    display: flex;
+    flex-direction: column;
+    gap: 30px;
+}
+
+.detail-header {
+    display: flex;
+    gap: 35px;
+    align-items: center;
+}
+
+.p-visual {
+    width: 220px;
+    height: 220px;
+    flex-shrink: 0;
+    border: 1px solid var(--border-dim);
+    background: radial-gradient(circle at center, rgba(0, 40, 0, 0.4) 0%, transparent 70%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    box-shadow: inset 0 0 30px rgba(0, 255, 65, 0.05);
+}
+
+.p-visual svg,
+.p-visual img {
+    width: 180px;
+    height: 180px;
+}
+
+.p-main-info h2 {
+    font-family: var(--font-logo);
+    font-size: 38px;
+    color: var(--green);
+    margin: 0 0 12px 0;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    text-shadow: 0 0 15px rgba(0, 255, 65, 0.3);
+}
+
+.region-tag {
+    display: inline-block;
+    padding: 5px 15px;
+    border: 1px solid;
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-right: 12px;
+    color: inherit;
+    background: rgba(0, 0, 0, 0.3);
+}
+
+.status-tag {
+    font-size: 10px;
+    letter-spacing: 1px;
+    font-weight: bold;
+    text-transform: uppercase;
+    padding: 5px 0;
+}
+
+.status-tag.estável {
+    color: var(--green);
+}
+
+.status-tag.protegido {
+    color: #00e8ff;
+}
+
+.status-tag.militar {
+    color: var(--amber);
+}
+
+.status-tag.místico {
+    color: #cc66ff;
+}
+
+.status-tag.agonizante {
+    color: var(--red-alert);
+    animation: blink-fast 0.8s infinite;
+}
+
+.status-tag.classificado {
+    color: #555;
+    font-style: italic;
+}
+
+.detail-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+}
+
+.detail-section h3 {
+    font-size: 11px;
+    color: var(--green-dim);
+    border-bottom: 1px solid var(--border-dim);
+    padding-bottom: 10px;
+    margin-bottom: 15px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+}
+
+.detail-section p {
+    font-size: 14px;
+    line-height: 1.7;
+    color: rgba(255, 255, 255, 0.85);
+    text-align: justify;
+}
+
+.detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 25px;
+}
+
+.detail-item label {
+    display: block;
+    font-size: 9px;
+    color: var(--green-dark);
+    letter-spacing: 2px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+}
+
+.detail-item span {
+    font-size: 13px;
+    color: var(--green-mid);
+}
+
+/* Animations & Keyframes */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.98);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes blink-fast {
+
+    0%,
+    100% {
+        opacity: 1;
+        filter: brightness(1.5);
+    }
+
+    50% {
+        opacity: 0.3;
+        filter: brightness(1);
+    }
+}
+
+@keyframes planet-spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.rotating-layer {
+    animation: planet-spin 150s linear infinite;
+    transform-origin: center;
+}
+
+.pulse-glow {
+    animation: glow-pulse 3s ease-in-out infinite alternate;
+}
+
+@keyframes glow-pulse {
+    from {
+        opacity: 0.15;
+    }
+
+    to {
+        opacity: 0.45;
+    }
+}
+
+.planet-gif-visual {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    filter: drop-shadow(0 0 10px rgba(0, 255, 65, 0.2));
+}
+
+@media (max-width: 1000px) {
+    .map-container {
+        grid-template-columns: 220px 1fr;
+    }
+
+    .p-visual {
+        width: 160px;
+        height: 160px;
+    }
+
+    .p-main-info h2 {
+        font-size: 28px;
+    }
+
+    .detail-body {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+}
+
+@media (max-width: 800px) {
+    .map-sidebar {
+        display: none;
+    }
+
+    .map-container {
+        grid-template-columns: 1fr;
+    }
+
+    .viewer-content {
+        padding: 25px;
+    }
+
+    .detail-header {
+        flex-direction: column;
+        text-align: center;
+        gap: 20px;
+    }
+}
+
+.panel-box {
+    background: rgba(0, 40, 0, 0.3);
+    border: 1px solid var(--border-dim);
+    padding: 15px;
+    margin-bottom: 20px;
+    border-radius: 2px;
+}
+
+.modal-close-btn:hover {
+    color: var(--green) !important;
+    text-shadow: 0 0 8px var(--green);
+}
+
+/* ── CRT Effect for Ship GIFs ────────────────────────────── */
+.crt-ship {
+    /* Apply a greenish, slightly degraded CRT style to the GIFs */
+    filter: sepia(100%) hue-rotate(85deg) saturate(250%) brightness(0.9) contrast(1.3) drop-shadow(0 0 10px rgba(0, 255, 65, 0.4));
+    mix-blend-mode: screen;
+    image-rendering: pixelated;
+    /* Gives it a bit of a retro monitor feel */
+    transition: filter 0.3s ease;
+}
+
+.crt-ship:hover {
+    /* Brighter green pulse on hover */
+    filter: sepia(100%) hue-rotate(85deg) saturate(350%) brightness(1.1) contrast(1.4) drop-shadow(0 0 15px rgba(0, 255, 65, 0.8));
 }

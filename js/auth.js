@@ -36,7 +36,8 @@ const Auth = (() => {
                 username: 'ADM_NEXUS',
                 email: 'admin@ort.gov',
                 role: 'admin',
-                display_name: 'Mestre da O.R.T.'
+                display_name: 'Mestre da O.R.T.',
+                current_planet: 'Sítio Keter'
             }
         },
         'agente@ort.gov': {
@@ -46,7 +47,8 @@ const Auth = (() => {
                 username: 'AGENTE_001',
                 email: 'agente@ort.gov',
                 role: 'agent',
-                display_name: 'Agente 001'
+                display_name: 'Agente 001',
+                current_planet: 'Sítio Keter'
             }
         }
     };

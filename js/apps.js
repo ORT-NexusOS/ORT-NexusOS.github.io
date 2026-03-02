@@ -21,6 +21,9 @@ const Apps = (() => {
     terminal: { icon: '💻', title: 'TERMINAL CLI', path: 'O.R.T. > SYS > TERMINAL' },
     combat: { icon: '⚔️', title: 'SINCRO COMBATE', path: 'O.R.T. > ADMIN > COMBAT MASTER' },
     admin: { icon: '⚙', title: 'PAINEL ADM', path: 'O.R.T. > ADMIN > CONTROL' },
+    shipApp: { icon: '🚀', title: 'MINHA NAVE', path: 'O.R.T. > SEC > SHIP' },
+    hangarApp: { icon: '🛠️', title: 'GARAGEM O.R.T. (HANGAR)', path: 'O.R.T. > SEC > HANGAR' },
+    travelApp: { icon: '🛰️', title: 'MINHA VIAGEM', path: 'O.R.T. > OPS > TRAVEL' },
   };
 
   let activeRoomId = '00000000-0000-0000-0000-000000000001';
@@ -45,7 +48,7 @@ const Apps = (() => {
   /* ── Render HTML ─────────────────────────────────────────── */
   function render(appId) {
     try {
-      const renders = { gallery, videos, missions, emails, chat, shop, map: mapRender, notepad, vault, calendar, terminal, combat, admin, stats: statsPage, inventory: inventoryPage };
+      const renders = { gallery, videos, missions, emails, chat, shop, map: mapRender, notepad, vault, calendar, terminal, combat, admin, stats: statsPage, inventory: inventoryPage, shipApp, hangarApp, travelApp };
       return titlebar(appId) + `<div class="app-content" id="content-${appId}">` +
         (renders[appId] ? renders[appId]() : '<div class="empty-state">EM DESENVOLVIMENTO</div>') +
         '</div>';
@@ -62,7 +65,7 @@ const Apps = (() => {
       emails: initEmails, chat: initChat, shop: initShop, map: mapInit,
       notepad: initNotepad, vault: initVault,
       calendar: initCalendar, terminal: initTerminal, combat: initCombat, admin: initAdmin,
-      stats: initStats, inventory: initInventory
+      stats: initStats, inventory: initInventory, shipApp: initShipApp, hangarApp: initHangarApp, travelApp: initTravelApp
     };
     if (inits[appId]) {
       setTimeout(() => {
@@ -333,7 +336,713 @@ const Apps = (() => {
     const m = url.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
     return m ? m[1] : null;
   }
+  function initShipApp() { loadShipData(); }
 
+  async function openCargoTransfer() {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    // Load inventory and ship cargo
+    const { data: inv } = await db.from('inventory').select('*, store_items(*)').eq('user_id', user.id);
+    const { data: ships } = await db.from('ships').select('*').eq('owner_id', user.id);
+    const ship = ships?.[0];
+    if (!ship) return;
+
+    let overlay = $('cargo-transfer-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'app-overlay modal-overlay-active';
+      overlay.id = 'cargo-transfer-overlay';
+      document.body.appendChild(overlay);
+    }
+
+    const renderItemCard = (i, isShip, index) => `
+      <div class="transfer-card" data-id="${isShip ? index : i.id}" data-type="${isShip ? 'cargo' : 'inv'}" onclick="Apps.toggleTransferSelect(this)">
+        <div class="card-sel-indicator"></div>
+        <div class="card-icon">${i.store_items?.icon || i.icon || '📦'}</div>
+        <div class="card-info">
+          <div class="card-name">${(i.store_items?.name || i.name || 'ITEM').toUpperCase()}</div>
+          <div class="card-qty">QTD: ${i.qty || 1}</div>
+        </div>
+      </div>
+    `;
+
+    overlay.innerHTML = `
+      <div class="modal-box ship-transfer-modal" style="width:850px; max-width:95vw;">
+        <div class="modal-header">> SISTEMA DE TRANSFERÊNCIA DE CARGA — ${ship.name.toUpperCase()}</div>
+        <div class="modal-body" style="display:grid; grid-template-columns:1fr 1fr; gap:20px; height:450px;">
+          <div class="transfer-column">
+            <div class="column-header">
+              <h4 class="stat-label">MEU INVENTÁRIO</h4>
+              <button class="btn btn-mini" onclick="Apps.selectAllTransfer('inv')">[ TODOS ]</button>
+            </div>
+            <div id="transfer-inv-grid" class="transfer-grid">
+               ${(inv || []).map(i => renderItemCard(i, false)).join('') || '<div class="empty-state">INVENTÁRIO VAZIO</div>'}
+            </div>
+            <div class="column-footer">
+              <button class="btn btn-batch" onclick="Apps.batchTransfer('toShip', '${ship.id}')">[ TRANSFERIR PARA NAVE >> ]</button>
+            </div>
+          </div>
+          <div class="transfer-column">
+            <div class="column-header">
+              <h4 class="stat-label">CARGO DA NAVE</h4>
+              <button class="btn btn-mini" onclick="Apps.selectAllTransfer('cargo')">[ TODOS ]</button>
+            </div>
+            <div id="transfer-ship-grid" class="transfer-grid">
+               ${(ship.cargo || []).map((i, idx) => renderItemCard(i, true, idx)).join('') || '<div class="empty-state">CARGO VAZIO</div>'}
+            </div>
+            <div class="column-footer">
+              <button class="btn btn-batch" onclick="Apps.batchTransfer('toAgent', '${ship.id}')">[ << TRANSFERIR PARA AGENTE ]</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" onclick="$('cargo-transfer-overlay').remove(); Apps.loadShipData();">[ CONCLUIR PROTOCOLO ]</button>
+        </div>
+      </div>
+      <style>
+        .ship-transfer-modal { background: rgba(0,20,0,0.95); border: 2px solid var(--green); }
+        .transfer-column { display:flex; flex-direction:column; gap:10px; height:100\%; overflow: hidden; }
+        .column-header { display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-dim); padding-bottom:10px; flex-shrink: 0; }
+        .transfer-grid { 
+          flex:1; 
+          overflow-y:auto; 
+          display:grid; 
+          grid-template-columns: 1fr 1fr; 
+          grid-auto-rows: min-content;
+          gap:10px; 
+          padding:10px; 
+          background:rgba(0,0,0,0.3); 
+          border:1px solid var(--border-dim); 
+        }
+        .transfer-card { 
+          position:relative; background:rgba(0,255,65,0.03); border:1px solid var(--border-dim); padding:10px; cursor:pointer; 
+          display:flex; flex-direction:column; align-items:center; text-align:center; transition:all 0.2s ease;
+          min-height: 100px;
+        }
+        .transfer-card:hover { border-color:var(--green); background:rgba(0,255,65,0.08); }
+        .transfer-card.selected { border-color:var(--amber); background:rgba(215,153,33,0.15); box-shadow:inset 0 0 10px rgba(215,153,33,0.2); }
+        .card-sel-indicator { position:absolute; top:5px; right:5px; width:10px; height:10px; border:1px solid var(--border-dim); border-radius:2px; }
+        .transfer-card.selected .card-sel-indicator { background:var(--amber); border-color:var(--amber); box-shadow:0 0 5px var(--amber); }
+        .card-icon { font-size:24px; margin-bottom:5px; }
+        .card-name { font-family:var(--font-code); font-size:11px; color:var(--green); line-height:1.2; height:2.4em; overflow:hidden; }
+        .card-qty { font-size:9px; color:var(--green-dark); margin-top:5px; }
+        .btn-mini { font-size:9px; padding:2px 6px; }
+        .btn-batch { width:100%; border-color:var(--green-mid); color:var(--green-mid); font-size:11px; }
+        .column-footer { padding-top:10px; flex-shrink: 0; }
+      </style>
+    `;
+  }
+
+  function toggleTransferSelect(el) {
+    el.classList.toggle('selected');
+    Boot.playBeep(880, 0.02, 0.05);
+  }
+
+  function selectAllTransfer(type) {
+    const selector = type === 'inv' ? '#transfer-inv-grid .transfer-card' : '#transfer-ship-grid .transfer-card';
+    const cards = document.querySelectorAll(selector);
+    const allSelected = Array.from(cards).every(c => c.classList.contains('selected'));
+    cards.forEach(c => c.classList.toggle('selected', !allSelected));
+    Boot.playBeep(660, 0.04, 0.08);
+  }
+
+  async function batchTransfer(direction, shipId) {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    const selector = direction === 'toShip' ? '#transfer-inv-grid .transfer-card.selected' : '#transfer-ship-grid .transfer-card.selected';
+    const selected = Array.from(document.querySelectorAll(selector));
+
+    if (selected.length === 0) {
+      showNotification('SISTEMA', 'NENHUM ITEM SELECIONADO.', 'alert');
+      return;
+    }
+
+    const ids = selected.map(c => c.dataset.id);
+
+    if (direction === 'toShip') {
+      const { data: items } = await db.from('inventory').select('*, store_items(name, icon)').in('id', ids);
+      const { data: ship } = await db.from('ships').select('cargo').eq('id', shipId).single();
+
+      const newCargo = [...(ship.cargo || [])];
+      for (const invItem of items) {
+        newCargo.push({
+          name: invItem.store_items.name,
+          item_id: invItem.item_id,
+          icon: invItem.store_items.icon || '📦'
+        });
+      }
+
+      await db.from('ships').update({ cargo: newCargo }).eq('id', shipId);
+      await db.from('inventory').delete().in('id', ids);
+      showNotification('TRANSFERÊNCIA', `${items.length} ITENS MOVIDOS PARA A NAVE.`, 'success');
+      loadShipData(); // Refresh background UI
+    } else {
+      const { data: ship } = await db.from('ships').select('cargo').eq('id', shipId).single();
+      const cargo = [...(ship.cargo || [])];
+
+      // We sort indexes descending to avoid splicing issues
+      const sortedIdxs = ids.map(id => parseInt(id)).sort((a, b) => b - a);
+      const toAgent = [];
+
+      for (const idx of sortedIdxs) {
+        const item = cargo.splice(idx, 1)[0];
+        toAgent.push({ user_id: user.id, item_id: item.item_id });
+      }
+
+      await db.from('ships').update({ cargo }).eq('id', shipId);
+      await db.from('inventory').insert(toAgent);
+      showNotification('TRANSFERÊNCIA', `${toAgent.length} ITENS MOVIDOS PARA O AGENTE.`, 'success');
+      loadShipData(); // Refresh background UI
+    }
+
+    openCargoTransfer(); // Refresh same view
+  }
+
+  async function prepShipTravel(mode) {
+    const db = Auth.db();
+    const { data: ships } = await db.from('ships').select('*').eq('owner_id', Auth.getUser().id);
+    const ship = ships?.[0];
+    if (!ship) return;
+
+    if (ship.fuel < 20) {
+      showModal({ title: 'COMBUSTÍVEL BAIXO', body: 'REABASTEÇA NA LOJA PARA INICIAR A VIAGEM.', type: 'alert' });
+      return;
+    }
+
+    if (mode === 'mission') {
+      // Logic to pick from accepted missions
+      const { data: missions } = await db.from('mission_assignments')
+        .select('*, missions(*)')
+        .eq('user_id', Auth.getUser().id)
+        .eq('status', 'accepted');
+
+      if (!missions?.length) {
+        showModal({ title: 'SISTEMA', body: 'NENHUMA MISSÃO ATIVA PARA VINCULAR VIAGEM.', type: 'alert' });
+        return;
+      }
+      // Generate code and start Voyage
+      const mission = missions[0].missions;
+      const ticket = 'SHIP-' + ship.license_plate + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+
+      const parts = mission.route.split(' -> ');
+      let path = [];
+      if (window.MapApp) path = MapApp.calculateGalacticRoute(parts[0], parts[1]).map(p => p.id);
+
+      await db.from('travel_registrations').insert({
+        mission_id: mission.id,
+        user_id: Auth.getUser().id,
+        ship_id: ship.id,
+        ticket_code: ticket,
+        status: 'waiting',
+        type: 'private',
+        current_planet: parts[0],
+        target_planet: parts[1],
+        path: path
+      });
+
+      Desktop.openApp('travelApp');
+      setTimeout(() => {
+        if ($('travel-id-input')) $('travel-id-input').value = ticket;
+        joinTravelLobby();
+      }, 500);
+
+    } else {
+      window._mapSelectMode = true;
+      Desktop.openApp('map');
+      showNotification('SISTEMA DE NAVEGAÇÃO', 'SELECIONE O PLANETA DE DESTINO NO MAPA.', 'info');
+    }
+  }
+
+  async function setCustomVoyageDestination(planetId) {
+    window._mapSelectMode = false;
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+    const { data: ships } = await db.from('ships').select('*').eq('owner_id', user.id);
+    const ship = ships?.[0];
+    if (!ship) return;
+
+    // Detect current planet: Profile is the source of truth for agent location
+    const { data: profile } = await db.from('profiles').select('current_planet').eq('id', user.id).single();
+    let currentPlanet = profile?.current_planet || ship.current_location || 'capitolio';
+
+    if (currentPlanet === 'capitolio' && !profile?.current_planet) {
+      // Fallback only if profile is empty
+      const { data: lastTravel } = await db.from('travel_registrations')
+        .select('target_planet')
+        .eq('user_id', user.id)
+        .eq('status', 'finished')
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (lastTravel?.[0]?.target_planet) currentPlanet = lastTravel[0].target_planet;
+    }
+
+    const target = GALAXY_DB.find(p => p.id === planetId || p.name === planetId);
+    if (!target) return;
+
+    const ticket = 'SHIP-' + ship.license_plate + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+    let path = [];
+    if (window.MapApp && MapApp.calculateGalacticRoute) {
+      const route = MapApp.calculateGalacticRoute(currentPlanet, target.id);
+      if (route && route.length > 0) path = route.map(p => p.id);
+    }
+
+    // Debug log to trace path creation
+    console.log("[TRAVEL] Calculated path for ticket:", path);
+
+    // Fallback log
+    if (!path || path.length === 0) console.warn("[TRAVEL] Could not find route from Capitolio to", target.id);
+    await db.from('travel_registrations').insert({
+      user_id: user.id,
+      ship_id: ship.id,
+      ticket_code: ticket,
+      status: 'waiting',
+      type: 'private',
+      current_planet: currentPlanet,
+      target_planet: target.id,
+      path: path
+    });
+
+    Desktop.openApp('travelApp');
+    setTimeout(() => {
+      if ($('travel-id-input')) $('travel-id-input').value = ticket;
+      joinTravelLobby();
+    }, 500);
+  }
+
+  async function joinTravelLobby() {
+    const input = $('travel-id-input');
+    const id = input?.value?.trim();
+    if (!id) return;
+
+    const db = Auth.db();
+    if (!db) return;
+
+    // Register user as waiting in this lobby
+    await db.from('travel_registrations').update({ status: 'waiting' }).eq('ticket_code', id).eq('user_id', Auth.getUser().id);
+
+    // Detect voyage type for z-index
+    const { data: reg } = await db.from('travel_registrations').select('type').eq('ticket_code', id).maybeSingle();
+
+    $('travel-lobby').classList.add('hidden');
+    $('active-lobby-view').classList.remove('hidden');
+
+    subscribeTravelLobby(id);
+
+    $('btn-start-travel').onclick = () => startVoyage(id);
+    const overlay = $('travel-animation-overlay');
+    if (overlay && reg) {
+      overlay.style.zIndex = reg.type === 'private' ? '6500' : '10001';
+    }
+  }
+
+  async function startVoyage(ticketCode) {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    const overlay = $('travel-animation-overlay');
+    if (!overlay) return;
+
+    window._isVoyageActive = true;
+    const closeBtn = document.querySelector('#overlay-travelApp .btn-close-window');
+    if (closeBtn) closeBtn.style.display = 'none';
+
+    overlay.classList.remove('hidden');
+    const { data: registration, error: regError } = await db.from('travel_registrations')
+      .select('*, ships(*)')
+      .eq('ticket_code', ticketCode)
+      .maybeSingle();
+
+    if (regError || !registration) {
+      showModal({ title: 'SISTEMA DE NAVEGAÇÃO', body: 'ERRO AO SINCRONIZAR COORDENADAS DE VIAGEM. REGISTRO NÃO ENCONTRADO.', type: 'alert' });
+      overlay.classList.add('hidden');
+      return;
+    }
+
+    const isPrivate = registration.type === 'private';
+    const ship = registration.ships;
+    const log = $('travel-event-log');
+    const markerGroup = $('travel-ship-marker-group');
+    const vizContainer = $('travel-viz-container');
+    const pathLayer = $('travel-path-layer');
+    const bgLayer = $('travel-bg-layer');
+    const hudPlanet = $('hud-planet-name');
+    const hudSpeed = $('hud-speed');
+    const hudFuelText = $('hud-fuel');
+    const hudFuelBar = $('hud-fuel-bar');
+    const hudIntegText = $('hud-integrity');
+    const hudIntegBar = $('hud-integrity-bar');
+    const hudCrewList = $('hud-crew-list');
+
+    // Fetch Crew for HUD
+    let crewNames = [];
+    if (isPrivate && ship) {
+      const { data: passengers } = await db.from('ship_passengers').select('*, profiles(display_name, username)').eq('ship_id', ship.id);
+      if (passengers) {
+        crewNames = passengers.map(p => (p.npc_name || p.profiles?.display_name || p.profiles?.username || 'AGENTE').toUpperCase());
+      }
+    }
+    // Add Pilot to names
+    const pilotName = (Auth.getProfile()?.display_name || Auth.getProfile()?.username || 'PILOTO').toUpperCase();
+    if (hudCrewList) {
+      hudCrewList.innerHTML = `TRI: [ ${pilotName}${crewNames.length ? ' | ' + crewNames.join(' | ') : ''} ]`;
+    }
+    const nextJumpBtn = $('btn-next-jump');
+    const rollScanBtn = $('btn-roll-scanners');
+    const refuelBtn = $('btn-travel-refuel');
+    const abortBtn = $('btn-abort-voyage');
+    const finishBtn = $('btn-finish-voyage');
+
+    let pathIds = registration.path || [];
+    const galaxy = window.GALAXY_DB || (typeof GALAXY_DB !== 'undefined' ? GALAXY_DB : []);
+
+    if (!galaxy || galaxy.length === 0) {
+      console.error("[TRAVEL] CRITICAL: GALAXY_DB NOT FOUND!");
+      if (log) log.innerHTML = `<span style="color:var(--red-alert)">> ERRO CRÍTICO: BANCO DE DADOS GALÁCTICO NÃO ENCONTRADO.<br>> REINICIANDO TERMINAL...</span>`;
+      setTimeout(() => overlay.classList.add('hidden'), 3000);
+      return;
+    }
+
+    // Try to recalculate if empty
+    if (!pathIds.length && registration.current_planet && registration.target_planet) {
+      if (window.MapApp && MapApp.calculateGalacticRoute) {
+        const fallback = MapApp.calculateGalacticRoute(registration.current_planet, registration.target_planet);
+        if (fallback && fallback.length) pathIds = fallback.map(p => p.id);
+      }
+      if (!pathIds.length) pathIds = [registration.current_planet, registration.target_planet];
+    }
+
+    const pathPlanets = pathIds.map(id => galaxy.find(p => p.id === id || p.name.toLowerCase() === id.toString().toLowerCase())).filter(p => p);
+    if (!pathPlanets.length) {
+      if (log) log.innerHTML = `<span style="color:var(--red-alert)">> ERRO: ROTA INVÁLIDA OU PLANETAS NÃO ENCONTRADOS.</span>`;
+      setTimeout(() => overlay.classList.add('hidden'), 5000);
+      return;
+    }
+
+    // Render BG and Path
+    const REGION_COLORS = { core: '#00ccff', mid: '#00ff41', rim: '#ffaa00', vale: '#ff0055', unknown: '#888' };
+    if (bgLayer) {
+      bgLayer.innerHTML = galaxy.map(p => {
+        const rad = (p.pos.a * Math.PI) / 180;
+        return `<circle cx="${300 + p.pos.r * Math.cos(rad)}" cy="${300 + p.pos.r * Math.sin(rad)}" r="2" fill="${REGION_COLORS[p.rk] || REGION_COLORS.unknown}" opacity="0.3" />`;
+      }).join('');
+    }
+    if (pathLayer && pathPlanets.length >= 2) {
+      const points = pathPlanets.map(p => {
+        const rad = (p.pos.a * Math.PI) / 180;
+        return `${300 + p.pos.r * Math.cos(rad)},${300 + p.pos.r * Math.sin(rad)}`;
+      }).join(' ');
+      pathLayer.innerHTML = `<polyline points="${points}" fill="none" stroke="var(--green)" stroke-width="2" stroke-dasharray="5,5" opacity="0.6" style="filter:drop-shadow(0 0 5px var(--green));" />`;
+    }
+
+    if (log) log.innerHTML = `> PROTOCOLO DE SALTO INICIADO<br>> DESTINO: ${registration.target_planet.toUpperCase()}`;
+
+    const updateCam = (planet, lookAtPlanet, instant, mode = 'both') => {
+      const rad = (planet.pos.a * Math.PI) / 180;
+      const x = 300 + planet.pos.r * Math.cos(rad);
+      const y = 300 + planet.pos.r * Math.sin(rad);
+      const cameraG = $('travel-camera-g');
+      if (markerGroup) {
+        if (instant) {
+          markerGroup.style.transition = 'none';
+          if (cameraG) cameraG.style.transition = 'none';
+        } else {
+          markerGroup.style.transition = `transform ${mode === 'rotate' ? '1.2s' : '3.8s'} cubic-bezier(0.4, 0, 0.2, 1)`;
+          if (cameraG) cameraG.style.transition = `transform ${mode === 'rotate' ? '1.5s' : '5.5s'} cubic-bezier(0.22, 1, 0.36, 1)`;
+        }
+        let angleStr = "";
+        if (lookAtPlanet) {
+          const tRad = (lookAtPlanet.pos.a * Math.PI) / 180;
+          const tX = 300 + lookAtPlanet.pos.r * Math.cos(tRad);
+          const tY = 300 + lookAtPlanet.pos.r * Math.sin(tRad);
+          angleStr = ` rotate(${Math.atan2(tY - y, tX - x) * 180 / Math.PI + 90}deg)`;
+        }
+        if (mode === 'rotate') {
+          const m = markerGroup.style.transform.match(/translate\(([^)]+)\)/);
+          markerGroup.style.transform = `${m ? m[0] : `translate(${x}px, ${y}px)`}${angleStr}`;
+        } else if (mode === 'move') {
+          const m = markerGroup.style.transform.match(/rotate\(([^)]+)\)/);
+          markerGroup.style.transform = `translate(${x}px, ${y}px) ${m ? m[0] : ""}`;
+        } else {
+          markerGroup.style.transform = `translate(${x}px, ${y}px)${angleStr}`;
+        }
+        if (cameraG && (mode === 'move' || mode === 'both' || instant)) {
+          cameraG.style.transform = `translate(300px, 300px) scale(2.5) translate(${-x}px, ${-y}px)`;
+        }
+      }
+      if (hudPlanet) hudPlanet.textContent = planet.name.toUpperCase();
+    };
+
+    // Initial HUD State
+    let currentFuel = isPrivate ? (ship?.fuel || 100) : 100;
+    let currentInteg = isPrivate ? (ship?.integrity || 100) : 100;
+
+    const refreshHUD = () => {
+      if (hudFuelText) hudFuelText.textContent = Math.max(0, currentFuel).toFixed(0) + '%';
+      if (hudFuelBar) hudFuelBar.style.width = Math.max(0, currentFuel) + '%';
+      if (hudIntegText) hudIntegText.textContent = Math.max(0, currentInteg).toFixed(0) + '%';
+      if (hudIntegBar) hudIntegBar.style.width = Math.max(0, currentInteg) + '%';
+    };
+
+    // Expose stats to window for real-time sync with handleRefuel
+    window._activeVoyageStats = {
+      get fuel() { return currentFuel; },
+      set fuel(v) { currentFuel = v; refreshHUD(); },
+      get integrity() { return currentInteg; },
+      set integrity(v) { currentInteg = v; refreshHUD(); },
+      refreshHUD: refreshHUD
+    };
+
+    refreshHUD();
+
+    function subscribeShipData() {
+      const db = Auth.db();
+      const user = Auth.getUser();
+      if (!db || !user) return;
+
+      db.channel('public:ships')
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'ships', filter: `owner_id=eq.${user.id}` }, () => {
+          if (!window._isVoyageActive && typeof loadShipData === 'function') loadShipData();
+        })
+        .subscribe();
+
+      db.channel('public:ship_passengers')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'ship_passengers' }, () => {
+          if (!window._isVoyageActive && typeof loadShipData === 'function') loadShipData();
+        })
+        .subscribe();
+    }
+    window._subscribeShipData = subscribeShipData; // Internal helper for initShipApp
+
+    const rollChannel = db.channel(`travel_roll_${ticketCode}`);
+    if (isPrivate) {
+      rollChannel.on('broadcast', { event: 'dice_roll' }, async payload => {
+        const p = payload.payload;
+        await showDiceAnimation(p.roll, p.sec, p.total, p.isSuccess);
+      }).subscribe();
+    }
+
+    updateCam(pathPlanets[0], pathPlanets[1] || null, true, 'both');
+    await new Promise(r => setTimeout(r, 800));
+
+    let jumpsSinceScan = 0;
+    let abortedPlanet = null;
+
+    for (let i = 1; i < pathPlanets.length; i++) {
+      const p = pathPlanets[i];
+      const next = pathPlanets[i + 1] || null;
+      let pausePhase = null;
+
+      if (log) log.innerHTML += `<br>> CALCULANDO VETOR DE SALTO PARA ${p.name.toUpperCase()}...`;
+      updateCam(pathPlanets[i - 1], p, false, 'rotate');
+      await new Promise(r => setTimeout(r, 1400));
+
+      if (isPrivate) {
+        if (log) log.innerHTML += `<br><span style="color:var(--amber)">> AGUARDANDO COMANDO...</span>`;
+        if ($('travel-finish-container')) $('travel-finish-container').classList.remove('hidden');
+        if (refuelBtn) refuelBtn.style.display = 'block';
+        if (abortBtn) abortBtn.style.display = 'block';
+
+        if (jumpsSinceScan >= 2) {
+          if (nextJumpBtn) nextJumpBtn.style.display = 'none';
+          if (rollScanBtn) rollScanBtn.style.display = 'block';
+          if (log) log.innerHTML += `<br><span style="color:var(--red-alert)">> ANOMALIA DETECTADA NO RADAR. VARREDURA (d20) NECESSÁRIA.</span>`;
+          if (log) log.scrollTop = log.scrollHeight;
+        } else {
+          if (nextJumpBtn) nextJumpBtn.style.display = 'block';
+          if (rollScanBtn) rollScanBtn.style.display = 'none';
+        }
+
+        pausePhase = await new Promise(resolve => {
+          if (nextJumpBtn) {
+            nextJumpBtn.onclick = () => {
+              nextJumpBtn.style.display = 'none';
+              if (refuelBtn) refuelBtn.style.display = 'none';
+              if (abortBtn) abortBtn.style.display = 'none';
+              jumpsSinceScan++;
+              resolve('clear');
+            };
+          }
+          if (abortBtn) {
+            abortBtn.onclick = () => {
+              showModal({
+                title: 'ABORTAR VIAGEM',
+                body: 'DESEJA CANCELAR A ROTA E POUSAR IMEDIATAMENTE NO PLANETA ATUAL?',
+                type: 'confirm',
+                onConfirm: () => {
+                  nextJumpBtn.style.display = 'none';
+                  if (refuelBtn) refuelBtn.style.display = 'none';
+                  abortBtn.style.display = 'none';
+                  resolve('abort');
+                }
+              });
+            };
+          }
+          if (rollScanBtn) {
+            rollScanBtn.onclick = async () => {
+              rollScanBtn.disabled = true;
+              rollScanBtn.textContent = 'ESCANEANDO...';
+
+              const roll = Math.floor(Math.random() * 20) + 1;
+              const sec = ship?.stats?.security || 1;
+              const total = roll + sec;
+              const isSuccess = total >= 10;
+
+              // Send broadcast
+              rollChannel.send({
+                type: 'broadcast',
+                event: 'dice_roll',
+                payload: { roll, sec, total, isSuccess }
+              });
+
+              const bLog = `<br><span style="color:var(--green)">> SCANNERS: d20 [ ${roll} ] + SEG [ ${sec} ] = ${total}</span>`;
+              if (log) { log.innerHTML += bLog; log.scrollTop = log.scrollHeight; }
+
+              // Wait for animation locally
+              await showDiceAnimation(roll, sec, total, isSuccess);
+
+              if (!isSuccess) {
+                if (log) { log.innerHTML += `<br><span style="color:var(--red-alert); font-weight:bold;">> AMEAÇA CONFIRMADA! ROTA BLOQUEADA. AGUARDE LIBERAÇÃO DA O.R.T.</span>`; log.scrollTop = log.scrollHeight; }
+                rollScanBtn.style.display = 'none';
+                if (abortBtn) abortBtn.style.display = 'none';
+                await db.from('travel_registrations').update({ is_paused: true, current_event: `HOSTIL (Rolagem Total: ${total})` }).eq('ticket_code', ticketCode);
+                resolve('paused');
+              } else {
+                if (log) { log.innerHTML += `<br><span style="color:var(--green)">> SETOR LIMPO. ROTA LIBERADA.</span>`; log.scrollTop = log.scrollHeight; }
+                rollScanBtn.style.display = 'none';
+                if (refuelBtn) refuelBtn.style.display = 'none';
+                if (abortBtn) abortBtn.style.display = 'none';
+                jumpsSinceScan = 0;
+                rollScanBtn.disabled = false;
+                rollScanBtn.textContent = '[ RODAR SCANNERS ]';
+                resolve('clear');
+              }
+            };
+          }
+          if (refuelBtn) refuelBtn.onclick = () => Apps.openRefuelMenu();
+        });
+
+        if (pausePhase === 'paused') {
+          await new Promise(res => {
+            const pausedSub = db.channel(`travel_pause_${ticketCode}`)
+              .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'travel_registrations', filter: `ticket_code=eq.${ticketCode}` }, payload => {
+                if (payload.new && payload.new.is_paused === false) {
+                  if (log) { log.innerHTML += `<br><span style="color:var(--green)">> VIA LIBERADA PELA ADMINISTRAÇÃO O.R.T. RETOMANDO...</span>`; log.scrollTop = log.scrollHeight; }
+                  jumpsSinceScan = 0;
+                  if (rollScanBtn) {
+                    rollScanBtn.disabled = false;
+                    rollScanBtn.textContent = '[ RODAR SCANNERS ]';
+                  }
+                  if (refuelBtn) refuelBtn.style.display = 'none';
+                  if (abortBtn) abortBtn.style.display = 'none';
+                  pausedSub.unsubscribe();
+                  res();
+                }
+              }).subscribe();
+          });
+        }
+      }
+
+      if (log) log.innerHTML += `<br>> SALTANDO...`;
+      if (hudSpeed) hudSpeed.textContent = (Math.random() * 5 + 10).toFixed(1);
+      updateCam(p, next, false, 'move');
+
+      // Consume Fuel (Integrity only via events or long jumps if desired, but user asked to only consume fuel here)
+      currentFuel -= isPrivate ? (Math.random() * 3 + 1) : 0;
+      refreshHUD();
+
+      // Update DB every jump for private ships
+      if (isPrivate && ship) {
+        // Use Math.round to avoid 400 error on INTEGER columns with float values
+        await db.from('ships').update({
+          fuel: Math.round(Math.max(0, currentFuel)),
+          integrity: Math.round(Math.max(0, currentInteg))
+        }).eq('id', ship.id);
+      }
+
+      await new Promise(r => setTimeout(r, 4200));
+
+      if (!isPrivate && i % 3 === 0 && i < pathPlanets.length - 1) {
+        if (log) log.innerHTML += `<br><span style="color:var(--amber)">> POUSO TÉCNICO: REABASTECIMENTO</span>`;
+        currentFuel = 100;
+        await new Promise(r => setTimeout(r, 3000));
+        refreshHUD();
+      }
+
+      if (pausePhase === 'abort') {
+        abortedPlanet = p;
+        break;
+      }
+    }
+
+    const finalArrival = abortedPlanet ? abortedPlanet.name : registration.target_planet;
+
+    if (log) {
+      log.innerHTML += `<br><br><span style="color:var(--amber)" class="blink">> INICIANDO PROTOCOLO DE ATERRISAGEM...</span>`;
+      log.scrollTop = log.scrollHeight;
+    }
+    if (hudSpeed) hudSpeed.textContent = "0.0";
+
+    // Fake landing delay (2.5s)
+    await new Promise(r => setTimeout(r, 2500));
+
+    // Database Sync Protocol
+    if (log) {
+      log.innerHTML += `<br><span style="color:var(--green-dim)">> SINCRONIZANDO MANIFESTO COM O SERVIDOR...</span>`;
+      log.scrollTop = log.scrollHeight;
+    }
+
+    await db.from('travel_registrations').delete().eq('ticket_code', ticketCode);
+
+    // Sincronizar localização de todos os passageiros ao pousar
+    const allCrewToUpdate = [user.id];
+    const { data: currentCrew } = await db.from('ship_passengers').select('user_id').eq('ship_id', ship.id);
+    if (currentCrew) {
+      currentCrew.forEach(p => { if (p.user_id) allCrewToUpdate.push(p.user_id); });
+    }
+
+    // Atualização em lote (Supabase)
+    await Promise.all(allCrewToUpdate.map(uid =>
+      db.from('profiles').update({ current_planet: finalArrival }).eq('id', uid)
+    ));
+
+    if (Auth.getProfile) await Auth.getProfile(true);
+
+    // Fake finalizing delay to feel like a real dock
+    await new Promise(r => setTimeout(r, 1000));
+
+    if (log) {
+      log.innerHTML += `<br><span style="color:var(--green); font-size:14px; text-shadow:0 0 5px var(--green);">> VIAGEM CONCLUÍDA. NAVE POUSADA EM ${finalArrival.toUpperCase()}.</span>`;
+      log.scrollTop = log.scrollHeight;
+    }
+
+    showNotification('POUSO FINALIZADO', `Bem-vindo a ${finalArrival}.`, 'success');
+    if ($('travel-finish-container')) {
+      $('travel-finish-container').classList.remove('hidden');
+      if (refuelBtn) refuelBtn.style.display = 'none';
+      if (abortBtn) abortBtn.style.display = 'none';
+      if (finishBtn) finishBtn.style.display = 'block';
+    }
+
+    if (finishBtn) {
+      finishBtn.onclick = () => {
+        window._isVoyageActive = false;
+        overlay.classList.add('hidden');
+        Desktop.closeApp('travelApp');
+      };
+    }
+  }
+
+  async function triggerTravelEvent(reg) {
+    return { stop: false, msg: 'PROTOCOLO PADRÃO.' };
+  }
+
+  function initTravelApp() { }
   async function saveVideo() {
     const title = $('vid-title')?.value?.trim();
     const url = $('vid-url')?.value?.trim();
@@ -397,6 +1106,10 @@ const Apps = (() => {
         <div style="display:grid;gap:10px;margin-bottom:12px;">
           <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:12px;">
             <div class="login-field">
+              <label class="login-label">&gt; CÓDIGO DA MISSÃO (EX: M-001)</label>
+              <input type="text" id="m-code" placeholder="M-XXX">
+            </div>
+            <div class="login-field">
               <label class="login-label">&gt; RECOMPENSA (CR$)</label>
               <input type="number" id="m-reward" value="0">
             </div>
@@ -406,22 +1119,59 @@ const Apps = (() => {
                  <option value="">-- NENHUM --</option>
               </select>
             </div>
-            <div class="login-field">
-              <label class="login-label">&gt; DESIGNAR AGENTES</label>
-              <div id="m-assign-container" style="display:flex; flex-wrap:wrap; gap:8px; background:rgba(0,40,0,0.3); padding:8px; border:1px solid var(--border-dim); height:34px; overflow-y:auto;">
-                 <div class="loading-state" style="font-size:10px;">ESCANER DE AGENTES<span class="loading-dots"></span></div>
-              </div>
+          </div>
+          <div class="login-field">
+            <label class="login-label">&gt; DESIGNAR AGENTES</label>
+            <div id="m-assign-container" style="display:flex; flex-wrap:wrap; gap:8px; background:rgba(0,40,0,0.3); padding:8px; border:1px solid var(--border-dim); height:120px; overflow-y:auto;">
+                <div class="loading-state" style="font-size:10px;">ESCANER DE AGENTES<span class="loading-dots"></span></div>
             </div>
           </div>
           <div class="login-field"><label class="login-label">&gt; DESCRIÇÃO CURTA</label><input type="text" id="m-desc" placeholder="Resumo da missão..."></div>
           <div class="login-field"><label class="login-label">&gt; BRIEFING DETALHADO (LORE/INSTRUÇÕES)</label>
             <textarea id="m-briefing" rows="4" style="background:rgba(0,59,0,0.2);border:1px solid var(--border-dim);padding:8px;color:var(--green-mid);font-family:var(--font-code);font-size:14px;width:100%;outline:none;" placeholder="Instruções completas para os agentes..."></textarea>
           </div>
+          <div class="login-field">
+            <label class="login-label">&gt; PLANETA DE DESTINO DA MISSÃO</label>
+            <div style="display:grid; grid-template-columns:1fr; gap:10px; align-items:center;">
+              <select id="m-route-dest" style="background:rgba(0,59,0,0.2); border:1px solid var(--border-dim); color:var(--green); font-family:var(--font-code); padding:8px;"><option value="">-- SELECIONE O DESTINO --</option></select>
+            </div>
+            <div style="font-size:10px; color:var(--green-dim); margin-top:4px;">A ORIGEM SERÁ O PLANETA ATUAL DO AGENTE NO MOMENTO DA ACEITAÇÃO.</div>
+          </div>
+          <div class="login-field">
+            <label class="login-label">&gt; MEIO DE TRANSPORTE</label>
+            <select id="m-transport" style="background:rgba(0,59,0,0.2); border:1px solid var(--border-dim); color:var(--amber); font-family:var(--font-code); padding:8px; width:100%;">
+              <option value="Nenhum">NENHUM (POR CONTA DO AGENTE)</option>
+              <option value="Agência">AGÊNCIA DE VIAGENS (ORT)</option>
+              <option value="Nave ORT">NAVE FORNECIDA PELA ORT</option>
+              <option value="Nave Agente">NAVE DE AGENTE (PARTICULAR)</option>
+              <option value="Nave Comprada">NAVE COMPRADA (SISTEMA)</option>
+            </select>
+          </div>
         </div>
         <div style="display:flex;gap:10px;">
           <button class="btn" id="btn-save-mission">[ REGISTRAR ]</button>
           <button class="btn btn-danger" id="btn-cancel-mission">[ CANCELAR ]</button>
         </div>
+      </div>
+      <style>
+        .mission-tabs { display:flex; gap:12px; margin-bottom:20px; border-bottom:1px solid var(--border-dim); padding-bottom:12px; }
+        .m-tab { 
+          flex:1; padding:8px; font-family:var(--font-code); font-size:11px; cursor:pointer;
+          background:transparent; border:1px solid var(--border-dim); color:var(--green-mid);
+          transition: all 0.2s ease; text-transform:uppercase; letter-spacing:1px;
+        }
+        .m-tab:hover { border-color:var(--green); color:var(--green); box-shadow:0 0 10px rgba(0,255,65,0.2); }
+        .m-tab.active[data-tab="active"] { background:var(--green); color:#000; border-color:var(--green); box-shadow:0 0 15px var(--green); font-weight:bold; }
+        .m-tab.active[data-tab="pending"] { background:var(--amber); color:#000; border-color:var(--amber); box-shadow:0 0 15px var(--amber); font-weight:bold; }
+        .m-tab.active[data-tab="rejected"] { background:var(--red-alert); color:#000; border-color:var(--red-alert); box-shadow:0 0 15px var(--red-alert); font-weight:bold; }
+        
+        .m-tab[data-tab="pending"] { border-color:rgba(215,153,33,0.4); color:rgba(215,153,33,0.7); }
+        .m-tab[data-tab="rejected"] { border-color:rgba(255,34,0,0.4); color:rgba(255,34,0,0.7); }
+      </style>
+      <div class="mission-tabs" id="missions-tabs">
+        <button class="m-tab active" data-tab="active" onclick="Apps.filterMissions('active')">[ ATIVAS ]</button>
+        <button class="m-tab" data-tab="pending" onclick="Apps.filterMissions('pending')">[ PENDENTES ]</button>
+        <button class="m-tab" data-tab="rejected" onclick="Apps.filterMissions('rejected')">[ RECUSADAS ]</button>
       </div>
       <div style="border-bottom:1px solid var(--border);padding:6px 12px;display:grid;grid-template-columns:1fr auto auto auto;gap:12px;font-family:var(--font-code);font-size:12px;color:var(--green-mid);letter-spacing:1px;text-transform:uppercase;">
         <span>MISSÃO</span><span>PAGAMENTO</span><span>STATUS</span><span>AÇÃO</span>
@@ -441,6 +1191,7 @@ const Apps = (() => {
       if (!$('missions-add-form')?.classList.contains('hidden')) {
         renderMissionAgentSelector();
         loadLootRewards();
+        populateRouteSelectors();
       }
     });
 
@@ -455,6 +1206,14 @@ const Apps = (() => {
     if (!db) return;
     const { data } = await db.from('store_items').select('id, name').eq('is_loot', true).order('name');
     sel.innerHTML = `<option value="">-- NENHUM --</option>` + (data || []).map(i => `<option value="${i.id}">${i.name}</option>`).join('');
+  }
+
+  function populateRouteSelectors() {
+    const dest = $('m-route-dest');
+    if (!dest) return;
+    const names = (typeof GALAXY_DB !== 'undefined' ? GALAXY_DB : []).map(p => p.name).sort();
+    const options = `<option value="">-- SELECIONE O DESTINO --</option>` + names.map(n => `<option value="${n}">${n}</option>`).join('');
+    dest.innerHTML = options;
   }
 
   async function renderMissionAgentSelector() {
@@ -480,16 +1239,51 @@ const Apps = (() => {
 
     if (!code) { showModal({ title: 'ERRO DE REGISTRO', body: 'O CÓDIGO DA MISSÃO É OBRIGATÓRIO.', type: 'alert' }); return; }
     const db = Auth.db();
-    if (db) await db.from('missions').insert({
-      title: code,
-      description: desc,
-      briefing: briefing,
-      status: 'ativa',
-      reward: reward,
-      loot_item_id: lootId,
-      assigned_to: assign
-    });
+    if (db) {
+      const dest = $('m-route-dest');
+      const targetPlanet = dest?.value || '';
+      const routeValue = targetPlanet; // Only store the destination, origin comes from agent profile
+      const transport = $('m-transport')?.value || 'Nenhum';
+
+      const { data: mission, error: e1 } = await db.from('missions').insert({
+        title: code.toUpperCase() + (desc ? ' — ' + desc.toUpperCase() : ''),
+        description: briefing,
+        status: 'ativa',
+        reward: parseInt(reward),
+        loot_item_id: lootId || null,
+        assigned_to: assign,
+        route: routeValue,
+        target_planet: targetPlanet,
+        transport_mode: transport
+      }).select().single();
+
+      if (e1) {
+        showModal({ title: 'ERRO CRÍTICO', body: 'FALHA AO REGISTRAR MISSÃO: ' + e1.message, type: 'alert' });
+        return;
+      }
+
+      if (mission) {
+        // Initialize assignments as 'pending'
+        const usersToAssign = assign === 'all' ? (await Auth.adminListUsers()).data : Array.from(checks).map(c => ({ id: c.value }));
+        const assignments = (usersToAssign || []).map(u => ({
+          mission_id: mission.id,
+          user_id: u.id,
+          status: 'pending'
+        }));
+        await db.from('mission_assignments').insert(assignments);
+      }
+    }
     $('missions-add-form')?.classList.add('hidden');
+    loadMissions();
+  }
+
+  let currentMissionTab = 'active';
+
+  function filterMissions(tab) {
+    currentMissionTab = tab;
+    document.querySelectorAll('#missions-tabs .m-tab').forEach(b => {
+      b.classList.toggle('active', b.getAttribute('data-tab') === tab);
+    });
     loadMissions();
   }
 
@@ -497,28 +1291,77 @@ const Apps = (() => {
     const list = $('missions-list');
     if (!list) return;
     const db = Auth.db();
-    const DEMO = [
-      { id: 'd1', title: 'M-001 — OPERAÇÃO NEXUS PRIME', description: 'Investigar anomalia temporal no setor 7.', status: 'ativa' },
-      { id: 'd2', title: 'M-002 — EXTRAÇÃO DE DADOS OMEGA', description: 'Recuperar arquivos classificados da instalação abandonada.', status: 'ativa' },
-      { id: 'd3', title: 'M-000 — TREINAMENTO INICIAL', description: 'Familiarização com protocolos O.R.T.', status: 'completa' },
-    ];
-    const data = db ? (await db.from('missions').select('*, store_items(name)').order('created_at', { ascending: false })).data || [] : DEMO;
+    const user = Auth.getUser();
+
+    list.innerHTML = `<div class="loading-state">SINCRONIZANDO DADOS<span class="loading-dots"></span></div>`;
+
+    let data = [];
+    if (db && user) {
+      const { data: assignments } = await db.from('mission_assignments')
+        .select('*, missions(*, store_items(name))')
+        .eq('user_id', user.id);
+
+      const { data: tickets } = await db.from('travel_registrations')
+        .select('mission_id, ticket_code')
+        .eq('user_id', user.id);
+
+      const ticketMap = {};
+      (tickets || []).forEach(t => ticketMap[t.mission_id] = t.ticket_code);
+
+      const missionMap = (assignments || []).map(a => ({
+        ...a.missions,
+        assignment_status: a.status,
+        assignment_id: a.id,
+        ticket_code: ticketMap[a.missions.id] || null
+      }));
+
+      if (currentMissionTab === 'active') {
+        data = missionMap.filter(m => m.assignment_status === 'accepted' || m.assignment_status === 'active');
+      } else if (currentMissionTab === 'pending') {
+        data = missionMap.filter(m => m.assignment_status === 'pending');
+      } else {
+        data = missionMap.filter(m => m.assignment_status === 'rejected');
+      }
+    } else {
+      data = [
+        { id: 'd1', title: 'M-001 — OPERAÇÃO NEXUS PRIME', description: 'Investigar anomalia temporal no setor 7.', status: 'ativa', route: 'Zoidra -> Drundaia', assignment_status: 'accepted' },
+      ];
+    }
+
     if (!data.length) {
-      list.innerHTML = `<div class="empty-state"><span class="empty-state-icon">📋</span>NENHUMA MISSÃO REGISTRADA</div>`;
+      list.innerHTML = `<div class="empty-state"><span class="empty-state-icon">📋</span>SEM MISSÕES NESTE SETOR</div>`;
       return;
     }
-    list.innerHTML = data.map(m => `
-      <div class="mission-row">
-        <div style="cursor:pointer;" onclick="Apps.openBriefing('${m.id}')">
+
+    list.innerHTML = data.map(m => {
+      const isRejected = (m.assignment_status === 'rejected' || currentMissionTab === 'rejected');
+      const statusColor = m.assignment_status === 'accepted' ? 'var(--green)' : m.assignment_status === 'rejected' ? 'var(--red-alert)' : 'var(--amber)';
+
+      const ticketRow = m.ticket_code ? `
+        <div class="ticket-copy" onclick="event.stopPropagation(); Apps.copyToClipboard('${m.ticket_code}', 'ID DE VIAGEM')" style="margin-top:5px; padding:4px 8px; border:1px dashed var(--amber); background:rgba(255,176,0,0.05); cursor:pointer; font-size:10px; color:var(--amber); text-align:center; letter-spacing:1px;">
+          TICKET: ${m.ticket_code} <span style="font-size:9px; opacity:0.6;">[ CLIQUE PARA COPIAR ]</span>
+        </div>` : '';
+
+      return `
+      <div class="mission-row" style="${isRejected ? 'background:rgba(255,34,0,0.08); border-color:rgba(255,34,0,0.3);' : ''}">
+        <div style="flex:1; cursor:pointer;" onclick="Apps.openBriefing('${m.id}')">
           <div class="mission-title">${m.title} <span style="font-size:10px;color:var(--green-dark);">[CLIQUE PARA BRIEFING]</span></div>
-          <div class="mission-desc">${m.description || ''}</div>
-          <div style="font-size:10px; color:var(--green-mid);">DESIGNADO: ${m.assigned_to || 'all'}</div>
+          <div class="mission-desc" style="${isRejected ? 'color:rgba(255,255,255,0.6);' : ''}">${m.description || ''}</div>
+          <div style="font-size:10px; color:var(--green-mid);">
+            STATUS: <span style="color:${statusColor}; font-weight:bold;">${(m.assignment_status || 'DESIGNADA').toUpperCase()}</span>
+          </div>
+          ${ticketRow}
         </div>
         <div style="color:var(--amber); font-family:var(--font-code); display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
            <span>CR$ ${m.reward || 0}</span>
            ${m.store_items ? `<span style="font-size:9px; color:var(--green-dim); border:1px solid var(--green-dim); padding:1px 4px;">+ ${m.store_items.name.toUpperCase()}</span>` : ''}
         </div>
-        <span class="chip ${STATUS_CLS[m.status] || ''}">${STATUS_LABELS[m.status] || m.status.toUpperCase()}</span>
+        <div style="display:flex; flex-direction:column; gap:4px; align-items:center;">
+          ${Auth.isAdmin() ?
+          `<button class="btn" onclick="Apps.editMission('${m.id}')" style="font-size:9px; padding:2px 6px; border-color:var(--amber); color:var(--amber); background:rgba(215,153,33,0.1);">[ EDITAR ]</button>` :
+          `<span class="chip ${STATUS_CLS[m.status] || ''}">${STATUS_LABELS[m.status] || m.status.toUpperCase()}</span>`}
+          ${m.route ? `<button class="btn" onclick="Apps.viewMissionRoute('${m.route.replace(/'/g, "\\'")}')" style="font-size:9px; padding:2px 6px; border-color:var(--green-mid); color:var(--green-mid);">[ MAPA ]</button>` : ''}
+        </div>
         <div style="display:flex; gap:6px; align-items:center;">
           ${Auth.isAdmin() && db ? `
           <select onchange="Apps.updateMissionStatus('${m.id}', this.value)" style="background:transparent;border:1px solid var(--border-dim);color:var(--green-mid);font-family:var(--font-code);font-size:12px;padding:3px;cursor:pointer;">
@@ -527,7 +1370,8 @@ const Apps = (() => {
           <button class="btn btn-danger" onclick="Apps.deleteMission('${m.id}')" style="font-size:10px;padding:3px 6px;">[ EXCLUIR ]</button>
           ` : ''}
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   }
 
   async function updateMissionStatus(id, status) {
@@ -535,36 +1379,28 @@ const Apps = (() => {
     if (!db) return;
 
     if (status === 'completa') {
-      // Obter dados da missão para distribuir recompensa
       const { data: m } = await db.from('missions').select('*').eq('id', id).single();
       if (m && (m.reward > 0 || m.loot_item_id)) {
-        let ids = [];
-        if (m.assigned_to === 'all') {
-          const { data: allUsers } = await Auth.adminListUsers();
-          ids = (allUsers || []).map(u => u.id);
-        } else {
-          ids = m.assigned_to.split(',').map(i => i.trim());
-        }
+        // FIXED: Only reward agents who ACCEPTED the mission
+        const { data: acceptedAssignments } = await db.from('mission_assignments')
+          .select('user_id')
+          .eq('mission_id', id)
+          .eq('status', 'accepted');
+
+        const ids = (acceptedAssignments || []).map(a => a.user_id);
 
         for (const userId of ids) {
-          // 1. Distribuir Créditos
           if (m.reward > 0) {
             const { data: p } = await db.from('profiles').select('credits').eq('id', userId).single();
             if (p) await db.from('profiles').update({ credits: p.credits + m.reward }).eq('id', userId);
           }
-          // 2. Distribuir Item de Loot
           if (m.loot_item_id) {
-            await db.from('inventory').insert({
-              user_id: userId,
-              item_id: m.loot_item_id,
-              is_equipped: false
-            });
+            await db.from('inventory').insert({ user_id: userId, item_id: m.loot_item_id, is_equipped: false });
           }
         }
 
-        const rewardMsg = m.loot_item_id ? `CR$ ${m.reward} E ITENS DE RECOMPENSA` : `CR$ ${m.reward}`;
-        const targetMsg = m.assigned_to === 'all' ? 'TODOS OS AGENTES' : 'OS DESIGNADOS';
-        showNotification('MISSÃO CONCLUÍDA', `RECOMPENSA (${rewardMsg}) DISTRIBUÍDA PARA ${targetMsg}.`, 'success');
+        const rewardMsg = m.loot_item_id ? `CR$ ${m.reward} E ITENS` : `CR$ ${m.reward}`;
+        showNotification('MISSÃO CONCLUÍDA', `RECOMPENSA (${rewardMsg}) DISTRIBUÍDA PARA AGENTES QUE ACEITARAM.`, 'success');
       }
     }
 
@@ -588,46 +1424,244 @@ const Apps = (() => {
     });
   }
 
+  async function editMission(id) {
+    const db = Auth.db();
+    if (!db) return;
+
+    const { data: m, error } = await db.from('missions').select('*').eq('id', id).single();
+    if (error || !m) {
+      showModal({ title: 'ERRO', body: 'MISSÃO NÃO ENCONTRADA.', type: 'alert' });
+      return;
+    }
+
+    // Reuse Nova Missão modal structure but for editing
+    $('missions-add-form')?.classList.remove('hidden');
+    const header = document.querySelector('#missions-add-form .modal-header');
+    if (header) header.textContent = '> EDITAR MISSÃO DE CAMPO';
+
+    const btnSave = $('btn-save-mission');
+    if (btnSave) {
+      btnSave.textContent = '[ SALVAR ALTERAÇÕES ]';
+      // Change listener to saveMissionEdit
+      const newBtn = btnSave.cloneNode(true);
+      btnSave.parentNode.replaceChild(newBtn, btnSave);
+      newBtn.addEventListener('click', () => saveMissionEdit(id));
+    }
+
+    // Populate fields
+    if ($('m-code')) $('m-code').value = m.title.split(' — ')[0];
+    if ($('m-desc')) $('m-desc').value = m.title.split(' — ')[1] || '';
+    if ($('m-briefing')) $('m-briefing').value = m.description || '';
+    if ($('m-reward')) $('m-reward').value = m.reward || 0;
+
+    await loadLootRewards();
+    if ($('m-loot-reward')) $('m-loot-reward').value = m.loot_item_id || '';
+
+    populateRouteSelectors();
+    setTimeout(() => {
+      if (m.route && m.route.includes(' -> ')) {
+        const parts = m.route.split(' -> ');
+        if ($('m-route-origin')) $('m-route-origin').value = parts[0];
+        if ($('m-route-dest')) $('m-route-dest').value = parts[1];
+      }
+      if ($('m-transport')) $('m-transport').value = m.transport_mode || 'Nenhum';
+    }, 100);
+
+    // Agents assignment (pre-check those already assigned)
+    await renderMissionAgentSelector();
+    const { data: assignments } = await db.from('mission_assignments').select('user_id').eq('mission_id', id);
+    if (assignments) {
+      const assignedIds = assignments.map(a => a.user_id);
+      document.querySelectorAll('input[name="m-assign-check"]').forEach(cb => {
+        if (assignedIds.includes(cb.value)) cb.checked = true;
+      });
+    }
+  }
+
+  async function saveMissionEdit(id) {
+    const db = Auth.db();
+    if (!db) return;
+
+    const code = $('m-code')?.value?.trim();
+    const desc = $('m-desc')?.value?.trim();
+    const briefing = $('m-briefing')?.value?.trim();
+    const reward = parseInt($('m-reward')?.value) || 0;
+    const lootId = $('m-loot-reward')?.value || null;
+    const transport = $('m-transport')?.value || 'Nenhum';
+    const origin = $('m-route-origin')?.value;
+    const dest = $('m-route-dest')?.value;
+    const routeValue = (origin && dest) ? `${origin} -> ${dest}` : '';
+
+    const checks = document.querySelectorAll('input[name="m-assign-check"]:checked');
+    const assignList = Array.from(checks).map(c => c.value);
+
+    const { error: e1 } = await db.from('missions').update({
+      title: code.toUpperCase() + (desc ? ' — ' + desc.toUpperCase() : ''),
+      description: briefing,
+      reward: reward,
+      loot_item_id: lootId,
+      route: routeValue,
+      transport_mode: transport
+    }).eq('id', id);
+
+    if (e1) {
+      showModal({ title: 'ERRO', body: 'FALHA AO SALVAR: ' + e1.message, type: 'alert' });
+      return;
+    }
+
+    // Update assignments: remove old ones not in current list, add new ones
+    const { data: currentAssignments } = await db.from('mission_assignments').select('user_id').eq('mission_id', id);
+    const existingIds = (currentAssignments || []).map(a => a.user_id);
+
+    // Delete removed
+    const toRemove = existingIds.filter(id => !assignList.includes(id));
+    if (toRemove.length > 0) {
+      await db.from('mission_assignments').delete().eq('mission_id', id).in('user_id', toRemove);
+    }
+
+    // Add new
+    const toAdd = assignList.filter(id => !existingIds.includes(id)).map(userId => ({
+      mission_id: id,
+      user_id: userId,
+      status: 'pending'
+    }));
+    if (toAdd.length > 0) {
+      await db.from('mission_assignments').insert(toAdd);
+    }
+
+    $('missions-add-form')?.classList.add('hidden');
+    loadMissions();
+    showNotification('SISTEMA', 'MISSÃO ATUALIZADA COM SUCESSO.', 'success');
+  }
+
+  async function viewMissionRoute(routeStr) {
+    if (!routeStr) return;
+
+    const db = Auth.db();
+    const user = Auth.getUser();
+    let origin = Auth.getProfile()?.current_planet || '';
+    let dest = routeStr;
+
+    // Fetch fresh location if missing from profile cache
+    if (!origin && db && user) {
+      const { data: p } = await db.from('profiles').select('current_planet').eq('id', user.id).single();
+      if (p?.current_planet) origin = p.current_planet;
+    }
+
+    // Legacy format: "Origin -> Destination"
+    if (routeStr.includes('->')) {
+      const parts = routeStr.split('->').map(p => p.trim());
+      origin = parts[0];
+      dest = parts[1];
+    }
+
+    if (!dest) return;
+
+    if (window.MapApp && MapApp.setMissionRoute) {
+      MapApp.setMissionRoute(origin || dest, dest);
+      Desktop.openApp('map');
+    }
+  }
+
   async function openBriefing(id) {
     const db = Auth.db();
+    const user = Auth.getUser();
     let mission = null;
-    if (db) {
+    let assignment = null;
+
+    if (db && user) {
       const { data } = await db.from('missions').select('*, store_items(name)').eq('id', id).single();
       mission = data;
-    } else {
-      // Demo data handling (optional)
+      const { data: assignData } = await db.from('mission_assignments').select('*').eq('mission_id', id).eq('user_id', user.id).single();
+      assignment = assignData;
     }
 
     if (!mission) return;
 
-    const lb = $('lightbox');
-    if (!lb) return;
+    // 4. Buscar ID de Viagem se houver (Agência)
+    let travelId = null;
+    const isMissionActive = assignment?.status === 'active' || assignment?.status === 'accepted';
+    if (isMissionActive && mission.transport_mode === 'Agência') {
+      const { data: reg } = await db.from('travel_registrations')
+        .select('ticket_code')
+        .eq('mission_id', id)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (reg) travelId = reg.ticket_code;
+    }
 
-    // Forçar para o topo do DOM e elevar z-index dinamicamente
-    document.body.appendChild(lb);
-    lb.style.zIndex = '999999';
+    let actionButtons = '';
+    if (assignment && assignment.status === 'pending') {
+      actionButtons = `
+        <div style="display:flex; gap:10px; margin-top:20px;">
+          <button class="btn" onclick="Apps.respondToMission('${id}', 'accepted')" style="background:var(--green); color:#000;">[ ACEITAR MISSÃO ]</button>
+          <button class="btn btn-danger" onclick="Apps.respondToMission('${id}', 'rejected')">[ RECUSAR MISSÃO ]</button>
+        </div>`;
+    } else if (Auth.isAdmin() && assignment && assignment.status === 'rejected') {
+      actionButtons = `
+        <div style="display:flex; gap:10px; margin-top:20px;">
+          <button class="btn" onclick="Apps.respondToMission('${id}', 'pending')" style="border-color:var(--amber); color:var(--amber);">[ REENVIAR SOLICITAÇÃO ]</button>
+        </div>`;
+    }
 
-    const briefingHTML = `
-            <div class="briefing-container scan-effect" style="background:var(--bg); border:1px solid var(--border); padding:30px; max-width:700px; width:90%; box-shadow:0 0 50px rgba(0,255,65,0.3); position:relative; overflow-y:auto; max-height:80vh;">
-                <div style="font-family:var(--font-logo); font-size:20px; color:var(--green); border-bottom:1px solid var(--border-dim); padding-bottom:10px; margin-bottom:20px;">
-                    MISSION BRIEFING: ${mission.title}
-                </div>
-                <div style="font-family:var(--font-code); font-size:15px; color:var(--green-mid); line-height:1.8; white-space:pre-wrap;">
-                    ${mission.briefing || 'NENHUMA INSTRUÇÃO ADICIONAL DISPONÍVEL.'}
-                </div>
-                ${mission.store_items ? `
-                <div style="margin-top:20px; padding:15px; border:1px dashed var(--amber); background:rgba(255,183,0,0.05);">
-                   <div class="login-label" style="color:var(--amber); margin-bottom:5px;">RECOMPENSA LOGÍSTICA ADICIONAL</div>
-                   <div style="font-family:var(--font-code); color:var(--green); font-size:16px;">> ${mission.store_items.name.toUpperCase()}</div>
-                </div>` : ''}
-                <div style="margin-top:30px; text-align:right;">
-                    <button class="btn" onclick="document.getElementById('lightbox').classList.add('hidden')">[ FECHAR ]</button>
-                </div>
+    showModal({
+      title: mission.title,
+      body: `
+        <div style="font-family:var(--font-code); color:var(--green-mid); line-height:1.6;">
+          <div style="margin-bottom:15px; border-left:3px solid var(--green); padding-left:10px;">
+            <label style="font-size:10px; opacity:0.6;">OBJETIVO PRINCIPAL</label>
+            <div style="font-size:16px; color:var(--green);">${mission.description || 'SEM DESCRIÇÃO'}</div>
+          </div>
+          <div style="background:rgba(0,255,0,0.05); padding:15px; border:1px solid var(--border-dim);">
+            <label style="font-size:10px; opacity:0.6;">BRIEFING DETALHADO</label>
+            <p style="white-space:pre-wrap;">${mission.briefing || 'NENHUMA INSTRUÇÃO ADICIONAL DISPONÍVEL.'}</p>
+          </div>
+          <div style="margin-top:15px; display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <div style="border:1px solid var(--border-dim); padding:8px;">
+              <label style="font-size:10px; opacity:0.6;">RECOMPENSA</label>
+              <div style="color:var(--amber);">CR$ ${mission.reward} ${mission.store_items ? '+ ' + mission.store_items.name : ''}</div>
             </div>
-        `;
+            <div style="border:1px solid var(--border-dim); padding:8px;">
+              <label style="font-size:10px; opacity:0.6;">ROTA PREVISTA</label>
+              <div style="color:var(--green-mid);">${mission.route || 'N/A'}</div>
+            </div>
+          </div>
+          ${travelId ? `
+          <div style="margin-top:10px; border:1px solid var(--amber); padding:10px; background:rgba(255,176,0,0.05); text-align:center; cursor:pointer;" onclick="Apps.copyToClipboard('${travelId}', 'ID DE VIAGEM')">
+            <label style="font-size:10px; color:var(--amber); opacity:0.8;">PASSAGEM EMITIDA (ID DE VIAGEM)</label>
+            <div style="font-family:var(--font-logo); font-size:14px; color:var(--amber); letter-spacing:2px; margin-top:5px;">${travelId}</div>
+            <div style="font-size:10px; color:var(--amber); margin-top:5px; opacity:0.6;">CLIQUE PARA COPIAR · USE NO APP "MINHA VIAGEM"</div>
+          </div>` : ''}
+          ${actionButtons}
+        </div>
+      `,
+      type: 'alert'
+    });
+  }
 
-    lb.innerHTML = briefingHTML;
-    lb.classList.remove('hidden');
+  async function respondToMission(missionId, status) {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    await db.from('mission_assignments').update({ status }).eq('mission_id', missionId).eq('user_id', user.id);
+
+    // Close modal properly
+    const m = document.querySelector('.app-overlay.modal-overlay-active');
+    if (m) m.remove();
+
+    loadMissions();
+
+    if (status === 'accepted') {
+      showNotification('MISSÃO ACEITA', 'A MISSÃO FOI ADICIONADA AO SEU PAINEL ATIVO.', 'success');
+
+      const { data: mission } = await db.from('missions').select('*').eq('id', missionId).single();
+      if (mission?.transport_mode === 'Agência') {
+        generateTravelTicket(missionId, user.id);
+      }
+    }
+    if (status === 'rejected') showNotification('MISSÃO RECUSADA', 'A MISSÃO FOI MOVIDA PARA O ARQUIVO DE RECUSADAS.', 'warning');
+    if (status === 'pending') showNotification('PROTOCOLO REINICIADO', 'A SOLICITAÇÃO FOI REENVIADA AO AGENTE.', 'info');
   }
 
   /* ══════════════════════════════════════════════════════════
@@ -1420,7 +2454,7 @@ const Apps = (() => {
     const list = $('timeline-list');
     if (!list) return;
     const db = Auth.db();
-    const data = db ? (await db.from('timeline_events').select('*').order('universe_date')).data || [] : DEMO_EVENTS;
+    const data = db ? (await db.from('timeline_events').select('*').order('created_at', { ascending: false })).data || [] : DEMO_EVENTS;
     if (!data.length) {
       list.innerHTML = `<div class="empty-state"><span class="empty-state-icon">📅</span>NENHUM EVENTO REGISTRADO</div>`;
       return;
@@ -1430,9 +2464,857 @@ const Apps = (() => {
         <div class="timeline-date">${e.universe_date || '??'}</div>
         <div class="timeline-content">
           <div class="tl-title">${e.title}</div>
-          <div class="tl-desc">${e.description || ''}</div>
         </div>
       </div>`).join('');
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     SHIPS ("MINHA NAVE")
+  ══════════════════════════════════════════════════════════ */
+  function shipApp() {
+    return `
+      <div class="app-toolbar" style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; align-items:center;">
+          <span style="font-family:var(--font-code);font-size:13px;color:var(--green-mid);">SISTEMA DE NAVEGAÇÃO</span>
+        </div>
+        <div class="ship-tabs" style="display:flex; gap:10px;">
+          <button class="btn btn-tab active" id="tab-own-ship" onclick="Apps.switchShipTab('own')">[ MINHA NAVE ]</button>
+          <button class="btn btn-tab" id="tab-local-ships" onclick="Apps.switchShipTab('local')">[ NAVES LOCAIS ]</button>
+        </div>
+        <button class="btn" id="btn-refresh-ship" onclick="Apps.loadShipData()">[ ATUALIZAR ]</button>
+      </div>
+
+      <div id="ship-main-container" class="full">
+        <div id="ship-content" class="full" style="padding:20px; display:grid; grid-template-columns:1fr 300px; gap:20px;">
+          <div id="ship-main-panel" class="panel" style="padding:20px;">
+             <div id="ship-status-view">
+                <h2 id="ship-name" class="glow">CARREGANDO NAVE...</h2>
+                <div id="ship-plate" style="font-family:var(--font-code); color:var(--amber); margin-bottom:20px;">ID: ???</div>
+                
+                <div id="ship-details-area">
+                  <div class="stats-grid">
+                    <div class="stat-box"><div class="stat-label">SEGURANÇA</div><div id="ship-stat-sec" class="stat-value">0</div></div>
+                    <div class="stat-box"><div class="stat-label">ARMAMENTO</div><div id="ship-stat-arm" class="stat-value">0</div></div>
+                    <div class="stat-box"><div class="stat-label">SISTEMAS</div><div id="ship-stat-sys" class="stat-value">0</div></div>
+                  </div>
+
+                  <div style="margin-top:20px;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                      <span class="stat-label">INTEGRIDADE</span>
+                      <span id="ship-integrity-text" class="stat-value" style="font-size:14px; color:var(--red-alert);">100/100</span>
+                    </div>
+                    <div class="rpg-bar-container"><div id="ship-integrity-bar" class="rpg-bar-fill hp-fill" style="width:100%"></div></div>
+                  </div>
+
+                  <div style="margin-top:20px;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                      <span class="stat-label">COMBUSTÍVEL</span>
+                      <span id="ship-fuel-text" class="stat-value" style="font-size:14px;">0/100</span>
+                    </div>
+                    <div class="rpg-bar-container"><div id="ship-fuel-bar" class="rpg-bar-fill sp-fill" style="width:0%"></div></div>
+                  </div>
+
+                  <div id="ship-travel-btns" style="margin-top:30px; display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                    <button class="btn" onclick="Apps.prepShipTravel('mission')">[ VIAGEM POR MISSÃO ]</button>
+                    <button class="btn" onclick="Apps.prepShipTravel('normal')">[ VIAGEM NORMAL ]</button>
+                  </div>
+                </div>
+
+                <!-- Painel para Lista de Naves Locais (Hidden by Default) -->
+                <div id="ship-local-list-area" class="hidden">
+                   <p class="text-dim" style="margin-bottom:15px;">NAVES DETECTADAS NESTE PLANETA:</p>
+                   <div id="local-ships-results" style="display:grid; gap:10px;"></div>
+                </div>
+             </div>
+          </div>
+        <aside id="ship-side-panel" class="panel" style="padding:15px; display:flex; flex-direction:column; gap:15px;">
+            <div id="ship-passenger-section">
+               <h3 class="stat-label" style="text-align:center; border-bottom:1px solid var(--border-dim); padding-bottom:10px; margin-bottom:10px;">MANIFESTO DE BORDO</h3>
+               <div id="ship-passenger-list" style="height:150px; overflow-y:auto; font-size:12px;">
+                 <div class="empty-state">NENHUM PASSAGEIRO</div>
+               </div>
+               <div id="ship-occupancy-bar" style="margin-top:5px; font-size:10px; color:var(--text-dim); text-align:right;">OCUPAÇÃO: 1/4</div>
+               <button class="btn" id="btn-board-ship" onclick="Apps.boardShip()" style="width:100\%; margin-top:5px; font-size:11px; display:none;">[ EMBARCAR ]</button>
+            </div>
+            
+            <div id="ship-cargo-section">
+               <h3 class="stat-label" style="text-align:center; border-bottom:1px solid var(--border-dim); padding-bottom:5px; margin-bottom:10px;">INVENTÁRIO DA NAVE</h3>
+               <div id="ship-cargo-list" style="height:180px; overflow-y:auto; font-size:12px;">
+                 <div class="empty-state">CARGO VAZIO</div>
+               </div>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <button class="btn" onclick="Apps.openRefuelMenu()" style="width:100\%; font-size:11px; border-color:var(--amber); color:var(--amber);">[ REABASTECER NAVE ]</button>
+              <button class="btn" onclick="Apps.openCargoTransfer()" style="width:100\%; font-size:11px;">[ TRANSFERIR ITENS ]</button>
+            </div>
+        </aside>
+      </div>
+    </div>`; // end ship-main-container + shipApp template
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     TRAVEL ("MINHA VIAGEM")
+  ══════════════════════════════════════════════════════════ */
+  function travelApp() {
+    return `
+      <div id="travel-lobby" class="full flex center" style="flex-direction:column; padding:40px; text-align:center;">
+        <h2 class="glow" style="margin-bottom:20px;">CENTRAL DE VIAGENS</h2>
+        <div class="panel" style="width:400px; padding:30px;">
+          <div class="login-field">
+            <label class="login-label">&gt; INSERIR ID DE VIAGEM / SESSÃO</label>
+            <input type="text" id="travel-id-input" placeholder="ID-XXXX-XXXX" style="text-align:center; font-size:20px; letter-spacing:3px;">
+          </div>
+          <button class="btn" onclick="Apps.joinTravelLobby()" style="width:100%; margin-top:20px; height:50px; font-size:20px;">[ ACESSAR LOBBY ]</button>
+        </div>
+      </div>
+      <div id="active-lobby-view" class="hidden panel full flex center" style="flex-direction:column; padding:40px; text-align:center;">
+          <h3 class="stat-label">LOBBY DE EMBARQUE</h3>
+          <div id="lobby-agents-list" style="margin:20px 0; display:flex; flex-direction:column; gap:10px; width:400px;"></div>
+          <div id="lobby-status-msg" class="text-dim" style="font-size:14px; margin-bottom:20px;">AGUARDANDO TODOS OS AGENTES...</div>
+          <button id="btn-start-travel" class="btn hidden" style="width:400px; height:60px; font-size:24px; border-color:var(--amber); color:var(--amber);">[ INICIAR VIAGEM ]</button>
+      </div>
+      <div id="travel-animation-overlay" class="hidden" style="position:fixed; inset:0; background:#000; z-index:10001; display:flex; flex-direction:column; align-items:center; justify-content:center; overflow:hidden;">
+        <!-- HUD de Viagem Cinematic -->
+        <div id="travel-hud" style="width:100%; height:100%; position:relative; overflow:hidden; background:#000;">
+            <div id="travel-viz-container" style="position:absolute; inset:0; transition: transform 2s ease-in-out;">
+             <svg id="travel-viz-svg" viewBox="0 0 600 600" style="width:100%; height:100%;">
+                <g id="travel-camera-g" style="transition: transform 5s cubic-bezier(0.22, 1, 0.36, 1);">
+                  <g id="travel-bg-layer"></g>
+                  <g id="travel-path-layer"></g>
+                  <g id="travel-ship-marker-group" style="transition: all 1s linear;">
+                    <!-- Ship Icon Silhouette (SVG) -->
+                    <path id="travel-ship-icon" d="M0,-10 L8,10 L0,5 L-8,10 Z" fill="var(--green)" style="filter:drop-shadow(0 0 8px var(--green));" />
+                    <circle r="12" fill="none" stroke="var(--green)" stroke-width="0.5" opacity="0.3">
+                      <animate attributeName="r" from="8" to="16" dur="1.5s" repeatCount="indefinite" />
+                      <animate attributeName="opacity" from="0.3" to="0" dur="1.5s" repeatCount="indefinite" />
+                    </circle>
+                  </g>
+                </g>
+             </svg>
+            </div>
+
+           <!-- HUD Overlays -->
+           <div class="hud-frame" style="position:absolute; inset:20px; border:1px solid rgba(0,255,65,0.2); pointer-events:none; display:flex; flex-direction:column; justify-content:space-between; padding:20px;">
+              <div style="display:flex; justify-content:space-between; font-family:var(--font-code); width:100%;">
+                <div style="color:var(--green); font-size:12px; letter-spacing:2px; flex:1;">[ SISTEMA DE NAVEGAÇÃO O.R.T. ]<br><span id="hud-planet-name">ESCANEANDO...</span></div>
+                <div style="flex:1; display:flex; flex-direction:column; align-items:flex-end;">
+                  <div style="color:var(--amber); font-size:12px;">VELOCIDADE: <span id="hud-speed">0</span> LY/S</div>
+                  <div style="width:200px; margin-top:5px;">
+                    <div style="display:flex; justify-content:space-between; font-size:9px; color:var(--red-alert);"><span>INTEGRIDADE</span><span id="hud-integrity">100%</span></div>
+                    <div class="rpg-bar-container" style="height:6px; margin:2px 0;"><div id="hud-integrity-bar" class="rpg-bar-fill hp-fill" style="width:100%"></div></div>
+                    <div style="display:flex; justify-content:space-between; font-size:9px; color:var(--green);"><span>COMBUSTÍVEL</span><span id="hud-fuel">100%</span></div>
+                    <div class="rpg-bar-container" style="height:6px; margin:2px 0;"><div id="hud-fuel-bar" class="rpg-bar-fill sp-fill" style="width:100%"></div></div>
+                  </div>
+                  <!-- Novo: Lista de Tripulação no HUD -->
+                  <div id="hud-crew-list" style="margin-top:10px; width:200px; font-family:var(--font-code); font-size:9px; color:var(--green-mid); text-align:right;">
+                    TRI: [ AGENTE ]
+                  </div>
+                </div>
+              </div>
+
+              <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+                 <div style="display:flex; flex-direction:column; gap:10px;">
+                   <!-- Quick Access Buttons -->
+                   <div style="display:flex; gap:10px; pointer-events:all;">
+                     <button class="btn" onclick="Desktop.openApp('stats')" style="font-size:10px; padding:3px 8px; border-color:var(--green-mid); color:var(--green-mid);">[ STATUS ]</button>
+                     <button class="btn" onclick="Desktop.openApp('inventory')" style="font-size:10px; padding:3px 8px; border-color:var(--green-mid); color:var(--green-mid);">[ INVENTÁRIO ]</button>
+                     ${Auth.isAdmin() ? `<button class="btn" onclick="Desktop.openApp('combat')" style="font-size:10px; padding:3px 8px; border-color:var(--red-alert); color:var(--red-alert);">[ SINCRO COMBATE ]</button>` : ''}
+                   </div>
+                   <div id="travel-event-log" style="width:400px; height:100px; padding:10px; background:rgba(0,40,0,0.4); border-left:2px solid var(--green); font-size:11px; color:var(--green-mid); overflow-y:auto; line-height:1.4;">
+                      > INICIANDO SEQUÊNCIA DE SALTO...
+                   </div>
+                 </div>
+                   <div id="travel-finish-container" class="hidden" style="display:flex; gap:10px;">
+                     <button class="btn btn-action-danger" id="btn-abort-voyage" style="width:180px; height:50px; font-size:12px; pointer-events:all; display:none;">[ ABORTAR ROTA ]</button>
+                     <button class="btn" id="btn-next-jump" style="width:180px; height:50px; font-size:12px; border-color:var(--amber); color:var(--amber); pointer-events:all; display:none;">[ INICIAR SALTO ]</button>
+                     <button class="btn" id="btn-roll-scanners" style="width:180px; height:50px; font-size:12px; border-color:var(--red-alert); color:var(--red-alert); background:rgba(255,0,0,0.1); pointer-events:all; display:none;">[ RODAR SCANNERS ]</button>
+                     <button class="btn" id="btn-travel-refuel" style="width:180px; height:50px; font-size:12px; border-color:var(--green); color:var(--green); pointer-events:all; display:none;">[ REABASTECER ]</button>
+                     <button class="btn" id="btn-finish-voyage" style="width:180px; height:50px; font-size:12px; border-color:var(--green); color:var(--green); pointer-events:all; display:none;">[ POUSAR NAVE ]</button>
+                   </div>
+              </div>
+           </div>
+           
+           <!-- Scanline Effect -->
+           <div class="scan-effect" style="position:absolute; inset:0; pointer-events:none; opacity:0.1; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06)); background-size: 100% 2px, 3px 100%;"></div>
+        </div>
+      </div>`;
+  }
+
+  /* ── Ship & Travel Shared Logic ── */
+  function switchShipTab(tab) {
+    const ownBtn = $('tab-own-ship');
+    const localBtn = $('tab-local-ships');
+    const ownArea = $('ship-details-area');
+    const localArea = $('ship-local-list-area');
+
+    if (!ownBtn || !localBtn) return;
+
+    ownBtn.classList.remove('active');
+    localBtn.classList.remove('active');
+    if (ownArea) ownArea.classList.add('hidden');
+    if (localArea) localArea.classList.add('hidden');
+
+    if (tab === 'own') {
+      ownBtn.classList.add('active');
+      if (ownArea) ownArea.classList.remove('hidden');
+      const travelBtns = $('ship-travel-btns');
+      if (travelBtns) travelBtns.style.display = '';
+      loadShipData(false);
+    } else {
+      localBtn.classList.add('active');
+      if (localArea) localArea.classList.remove('hidden');
+      loadLocalShips();
+    }
+  }
+
+  async function loadLocalShips() {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    const profile = Auth.getProfile();
+    const currentPlanet = profile?.current_planet;
+    if (!currentPlanet) return; // Evita crash se o perfil ainda não carregou
+
+    const listArea = $('local-ships-results');
+    const nameEl = $('ship-name');
+    const plateEl = $('ship-plate');
+
+    if (nameEl) nameEl.textContent = 'SCANNER ATIVO...';
+    if (plateEl) plateEl.textContent = `SETOR: ${currentPlanet.toUpperCase()}`;
+    if (listArea) listArea.innerHTML = `<div class="empty-state">ESCANEANDO...</div>`;
+
+    const { data: localShips } = await db.from('ships').select('*').eq('current_planet', currentPlanet);
+
+    if (!localShips || !localShips.length) {
+      if (listArea) listArea.innerHTML = `<div class="empty-state">NENHUMA NAVE DETECTADA NESTE SETOR.</div>`;
+      return;
+    }
+
+    const others = localShips.filter(s => s.owner_id !== user.id);
+
+    if (!others.length) {
+      if (nameEl) nameEl.innerHTML = '<span class="text-dim">NENHUMA NAVE ENCONTRADA</span>';
+      if (listArea) listArea.innerHTML = `<div class="empty-state">NENHUMA NAVE DE TERCEIROS NESTE PLANETA</div>`;
+      return;
+    }
+
+    if (nameEl) nameEl.textContent = 'NAVES LOCAIS DETECTADAS';
+
+    if (listArea) {
+      listArea.innerHTML = others.map(s => `
+        <div class="panel-box" style="padding:15px; display:flex; justify-content:space-between; align-items:center; border-left:3px solid var(--green);">
+          <div>
+            <div style="color:var(--green); font-weight:bold; font-size:14px;">${s.name.toUpperCase()}</div>
+            <div style="font-size:9px; color:var(--text-dim);">LICENÇA: ${s.license_plate || '???'}</div>
+          </div>
+          <button class="btn btn-mini" onclick="Apps.viewLocalShip('${s.id}')">[ MONITORAR ]</button>
+        </div>
+      `).join('');
+    }
+  }
+
+  async function viewLocalShip(shipId) {
+    const db = Auth.db();
+    if (!db) return;
+
+    const { data: ship } = await db.from('ships').select('*').eq('id', shipId).single();
+    if (!ship) return;
+
+    // Mostrar área de detalhes com dados da nave de terceiro
+    const ownArea = $('ship-details-area');
+    const localArea = $('ship-local-list-area');
+    if (ownArea) ownArea.classList.remove('hidden');
+    if (localArea) localArea.classList.add('hidden');
+
+    if ($('ship-name')) $('ship-name').textContent = ship.name.toUpperCase();
+    if ($('ship-plate')) $('ship-plate').textContent = `LICENÇA: ${ship.license_plate || '???'} | LOC: ${ship.current_planet.toUpperCase()}`;
+
+    // Esconder botões de viagem (apenas o dono viaja)
+    const travelBtns = $('ship-travel-btns');
+    if (travelBtns) travelBtns.style.display = 'none';
+
+    // Mostrar stats e manifesto da nave de terceiro
+    const stats = ship.stats || { security: '-', armaments: '-', system: '-' };
+    if ($('ship-stat-sec')) $('ship-stat-sec').textContent = stats.security;
+    if ($('ship-stat-arm')) $('ship-stat-arm').textContent = stats.armaments;
+    if ($('ship-stat-sys')) $('ship-stat-sys').textContent = stats.system;
+
+    const fuel = ship.fuel || 0;
+    if ($('ship-fuel-text')) $('ship-fuel-text').textContent = `${fuel}/100`;
+    if ($('ship-fuel-bar')) $('ship-fuel-bar').style.width = `${fuel}%`;
+
+    const integrity = ship.integrity !== undefined ? ship.integrity : 100;
+    if ($('ship-integrity-text')) $('ship-integrity-text').textContent = `${integrity}/100`;
+    if ($('ship-integrity-bar')) $('ship-integrity-bar').style.width = `${integrity}%`;
+
+    loadShipPassengers(ship.id, ship.owner_id, ship.passenger_capacity || 4, ship.current_planet);
+  }
+
+  async function loadShipData(searchLocal = false) {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    if ($('ship-name')) $('ship-name').textContent = 'BUSCANDO NAVE...';
+
+    // Fetch fresh profile to circumvent cache staleness
+    const { data: profile } = await db.from('profiles').select('active_ship_id, current_planet').eq('id', user.id).single();
+
+    // Carregar Nave Ativa (Garagem)
+    const activeShipId = profile?.active_ship_id;
+    let ship = null;
+
+    if (activeShipId) {
+      const { data: activeShipData } = await db.from('ships').select('*').eq('id', activeShipId).single();
+      ship = activeShipData;
+    }
+
+    const nameEl = $('ship-name');
+    const plateEl = $('ship-plate');
+    const travelBtns = $('ship-travel-btns');
+
+    if (!nameEl || !plateEl) return;
+
+    if (!ship) {
+      nameEl.innerHTML = '<span class="text-dim">NENHUMA NAVE ATIVA</span>';
+      plateEl.textContent = 'VISITE A GARAGEM O.R.T. PARA ATIVAR UMA NAVE';
+      if ($('ship-stat-sec')) $('ship-stat-sec').textContent = '-';
+      if ($('ship-stat-arm')) $('ship-stat-arm').textContent = '-';
+      if ($('ship-stat-sys')) $('ship-stat-sys').textContent = '-';
+      if ($('ship-fuel-text')) $('ship-fuel-text').textContent = '0/100';
+      if ($('ship-fuel-bar')) $('ship-fuel-bar').style.width = '0%';
+      if ($('ship-integrity-text')) $('ship-integrity-text').textContent = '0/100';
+      if ($('ship-integrity-bar')) $('ship-integrity-bar').style.width = '0%';
+      if (travelBtns) travelBtns.style.display = 'none';
+      if ($('ship-passenger-list')) $('ship-passenger-list').innerHTML = '<div class="text-dim item-box" style="margin-top:20px; text-align:center;">SEM NAVE ATIVA</div>';
+      return;
+    }
+
+    nameEl.textContent = ship.name?.toUpperCase() || 'SEM NOME';
+    const loc = (ship.current_planet || profile?.current_planet || '???').toUpperCase();
+    plateEl.innerHTML = `<div style="display:flex; flex-direction:column; gap:4px; font-size:12px; margin-top:5px;">
+      <span style="color:var(--text-dim);">LICENÇA: <span style="color:var(--green);">${ship.license_plate || '???'}</span></span>
+      <span style="color:var(--text-dim);">LOCAL: <span style="color:var(--green);">${loc}</span></span>
+    </div>`;
+
+    // Ensure own-ship detail area is visible
+    if (travelBtns) travelBtns.style.display = '';
+
+    // Stats
+    const stats = ship.stats || { security: 1, armaments: 1, system: 1 };
+    if ($('ship-stat-sec')) $('ship-stat-sec').textContent = stats.security;
+    if ($('ship-stat-arm')) $('ship-stat-arm').textContent = stats.armaments;
+    if ($('ship-stat-sys')) $('ship-stat-sys').textContent = stats.system;
+
+    // Fuel
+    const fuel = ship.fuel || 0;
+    if ($('ship-fuel-text')) $('ship-fuel-text').textContent = `${fuel}/100`;
+    if ($('ship-fuel-bar')) $('ship-fuel-bar').style.width = `${fuel}%`;
+
+    // Integrity
+    const integrity = ship.integrity !== undefined ? ship.integrity : 100;
+    if ($('ship-integrity-text')) $('ship-integrity-text').textContent = `${integrity}/100`;
+    if ($('ship-integrity-bar')) $('ship-integrity-bar').style.width = `${integrity}%`;
+
+    // Cargo & Passengers
+    loadShipCargo(ship.cargo || []);
+    loadShipPassengers(ship.id, ship.owner_id, ship.passenger_capacity || 4, ship.current_planet);
+  }
+
+  async function loadShipPassengers(shipId, ownerId, capacity, shipLocation) {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    const list = $('ship-passenger-list');
+    const bar = $('ship-occupancy-bar');
+    const btnBoard = $('btn-board-ship');
+    if (!db || !user || !list) return;
+
+    // Fetch passengers with profile data
+    const { data: passengers } = await db.from('ship_passengers')
+      .select('*, profiles(display_name, username, current_planet)')
+      .eq('ship_id', shipId);
+
+    const crew = passengers || [];
+    const isOwner = ownerId === user.id;
+    const isPassenger = crew.some(p => p.user_id === user.id);
+
+    // Render List
+    if (!crew.length) {
+      list.innerHTML = `<div class="empty-state">NENHUM PASSAGEIRO</div>`;
+    } else {
+      list.innerHTML = crew.map(p => {
+        const name = (p.npc_name || p.profiles?.display_name || p.profiles?.username || 'ANÔNIMO').toUpperCase();
+        const canKick = isOwner || p.user_id === user.id;
+        const actionLabel = p.user_id === user.id ? 'SAIR' : 'EXPULSAR';
+        return `
+          <div class="passenger-item" style="padding:8px; border-bottom:1px solid var(--border-dim); display:flex; justify-content:space-between; align-items:center;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="color:var(--green); font-size:10px;">◈</span>
+              <span>${name}</span>
+            </div>
+            ${canKick ? `<button class="btn btn-mini" style="border-color:var(--red-alert); color:var(--red-alert);" onclick="Apps.unboardShip('${p.id}')">[ ${actionLabel} ]</button>` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Occupancy
+    const occupied = crew.length;
+    if (bar) bar.textContent = `OCUPAÇÃO: ${occupied}/${capacity}`;
+
+    // Board Button Visibility & Location Restriction
+    if (btnBoard) {
+      const userProfile = Auth.getProfile();
+      const sameLocation = userProfile?.current_planet === shipLocation;
+
+      if (!isOwner && !isPassenger && occupied < capacity && sameLocation) {
+        btnBoard.style.display = 'block';
+      } else {
+        btnBoard.style.display = 'none';
+      }
+    }
+  }
+
+  async function boardShip(shipId) {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    let ship = null;
+    if (shipId) {
+      // Called directly with a shipId (from viewLocalShip flow)
+      const { data } = await db.from('ships').select('*').eq('id', shipId).single();
+      ship = data;
+    } else {
+      // Fallback: search by name displayed in the HUD
+      const shipNameEl = $('ship-name');
+      if (!shipNameEl || !shipNameEl.textContent) return;
+      const { data: targetShips } = await db.from('ships').select('*').ilike('name', shipNameEl.textContent.trim());
+      ship = targetShips?.[0];
+    }
+
+    if (!ship) {
+      showNotification('SISTEMA', 'NAVE NÃO ENCONTRADA.', 'error');
+      return;
+    }
+
+    // RESTRIÇÃO DE LOCALIZAÇÃO (RPG)
+    const profile = Auth.getProfile();
+    const myPlanet = profile?.current_planet;
+    const shipPlanet = ship.current_planet;
+    if (!myPlanet || !shipPlanet || myPlanet !== shipPlanet) {
+      showNotification('SISTEMA DE EMBARQUE', 'A NAVE NÃO ESTÁ NESTE PLANETA. ACESSO NEGADO.', 'error');
+      return;
+    }
+
+    const { error } = await db.from('ship_passengers').insert({
+      ship_id: ship.id,
+      user_id: user.id
+    });
+
+    if (error) {
+      showNotification('ERRO NO EMBARQUE', 'VOCÊ JÁ ESTÁ EM UMA NAVE OU ELA ESTÁ CHEIA.', 'error');
+    } else {
+      showNotification('BEM-VINDO A BORDO', `VOCÊ EMBARCOU NA NAVE ${ship.name?.toUpperCase()}.`, 'success');
+      loadShipData();
+    }
+  }
+
+  async function unboardShip(passengerId) {
+    const db = Auth.db();
+    if (!db) return;
+
+    const { error } = await db.from('ship_passengers').delete().eq('id', passengerId);
+    if (!error) {
+      showNotification('DESEMBARQUE', 'VOCÊ OU O TRIPULANTE SAIU DA NAVE.', 'success');
+      loadShipData();
+    }
+  }
+
+  function loadShipCargo(items) {
+    const list = $('ship-cargo-list');
+    if (!list) return;
+    if (!items.length) {
+      list.innerHTML = `<div class="empty-state">CARGO VAZIO</div>`;
+      return;
+    }
+    list.innerHTML = items.map(i => `
+      <div class="ship-cargo-item" style="padding:8px; border-bottom:1px solid var(--border-dim); display:flex; justify-content:space-between;">
+        <span>${i.name.toUpperCase()}</span>
+        <span class="text-dim">x${i.qty || 1}</span>
+      </div>
+    `).join('');
+  }
+
+  async function openRefuelMenu() {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    const { data: profile } = await db.from('profiles').select('credits').eq('id', user.id).single();
+    const { data: ships } = await db.from('ships').select('*').eq('owner_id', user.id);
+    const ship = ships?.[0];
+    if (!ship) return;
+
+    const { data: inventory } = await db.from('inventory').select('*, store_items(*)').eq('user_id', user.id);
+    const fuelItems = inventory?.filter(inv => inv.store_items?.category === 'fuel') || [];
+
+    const fuelPricePerUnit = 5; // CR$ por 1% de combustível
+    const needed = 100 - (ship.fuel || 0);
+    const maxCreditsBuy = Math.floor((profile?.credits || 0) / fuelPricePerUnit);
+    const buyAmount = Math.min(needed, maxCreditsBuy);
+
+    let html = `
+      <div style="padding:10px;">
+        <p style="color:var(--green-mid); font-size:12px; margin-bottom:15px;">ESTAÇÃO DE REABASTECIMENTO O.R.T.</p>
+        
+        <div class="panel-box" style="border-color:var(--amber);">
+          <h4 style="color:var(--amber); margin-bottom:10px;">1. REABASTECER COM CRÉDITOS</h4>
+          <p style="font-size:13px; margin-bottom:10px;">PREÇO: ${fuelPricePerUnit} CR$ / 1%</p>
+          <div style="display:flex; gap:10px; align-items:center;">
+             <input type="number" id="refuel-credits-amount" value="${buyAmount}" min="1" max="${needed}" style="width:80px;">
+             <button class="btn" onclick="Apps.handleRefuel('credits')">[ COMPRAR ${buyAmount * fuelPricePerUnit} CR$ ]</button>
+          </div>
+          <p style="font-size:11px; color:var(--green-dim); margin-top:5px;">SEU SALDO: ${profile?.credits?.toLocaleString()} CR$</p>
+        </div>
+
+        <div class="panel-box" style="border-color:var(--green);">
+          <h4 style="color:var(--green); margin-bottom:10px;">2. USAR GALÕES DO INVENTÁRIO</h4>
+          <div id="fuel-items-list">
+            ${fuelItems.length ? fuelItems.map(inv => `
+              <div style="display:flex; justify-content:space-between; align-items:center; padding:8px; border-bottom:1px solid var(--border-dim);">
+                <span>${inv.store_items.name.toUpperCase()} (${inv.remaining_uses || inv.store_items.technical_meta?.initial_uses || 1} USOS)</span>
+                <button class="btn" onclick="Apps.handleRefuel('item', '${inv.id}')" style="font-size:11px; padding:2px 8px;">[ USAR ]</button>
+              </div>
+            `).join('') : '<div class="text-dim" style="font-size:12px;">NENHUM ITEM DE COMBUSTÍVEL ENCONTRADO.</div>'}
+          </div>
+        </div>
+      </div>
+    `;
+
+    showModal({
+      title: 'MENU DE REABASTECIMENTO',
+      body: html,
+      noConfirm: true
+    });
+
+    // Sync input price
+    const input = $('refuel-credits-amount');
+    if (input) {
+      input.oninput = () => {
+        const amt = parseInt(input.value) || 0;
+        const btn = input.nextElementSibling;
+        if (btn) btn.textContent = `[ COMPRAR ${amt * fuelPricePerUnit} CR$ ]`;
+      };
+    }
+  }
+
+  async function handleRefuel(type, targetId) {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    const { data: ships } = await db.from('ships').select('*').eq('owner_id', user.id);
+    const ship = ships?.[0];
+    if (!ship) return;
+
+    const currentFuel = ship.fuel || 0;
+    if (currentFuel >= 100) {
+      showNotification('TANQUE CHEIO', 'A NAVE JÁ ESTÁ TOTALMENTE ABASTECIDA.', 'warning');
+      return;
+    }
+
+    if (type === 'credits') {
+      const fuelPricePerUnit = 5;
+      const amount = parseInt($('refuel-credits-amount')?.value) || 0;
+      const totalCost = amount * fuelPricePerUnit;
+
+      const { data: profile } = await db.from('profiles').select('credits').eq('id', user.id).single();
+      if (!profile || profile.credits < totalCost) {
+        showNotification('CRÉDITOS INSUFICIENTES', 'VOCÊ NÃO TEM SALDO PARA ESTA OPERAÇÃO.', 'error');
+        return;
+      }
+
+      const newFuel = Math.min(100, currentFuel + amount);
+      const newCredits = profile.credits - totalCost;
+
+      await db.from('profiles').update({ credits: newCredits }).eq('id', user.id);
+      await db.from('ships').update({ fuel: newFuel }).eq('id', ship.id);
+
+      // Sync with active voyage if exists
+      if (window._activeVoyageStats) {
+        window._activeVoyageStats.fuel = newFuel;
+      }
+
+      showNotification('REABASTECIDO', `NAVE ABASTECIDA COM SUCESSO. (+${newFuel - currentFuel}%)`, 'success');
+    } else if (type === 'item') {
+      const { data: inv } = await db.from('inventory').select('*, store_items(*)').eq('id', targetId).single();
+      if (!inv) return;
+
+      const recovery = inv.store_items.technical_meta?.recovery_amount || 25; // Default 25% for inventory fuel
+      const newFuel = Math.min(100, currentFuel + recovery);
+
+      // Consumir uso do item
+      const initialUses = inv.store_items.technical_meta?.initial_uses || 1;
+      const currentUses = inv.remaining_uses !== undefined ? inv.remaining_uses : initialUses;
+      const nextUses = currentUses - 1;
+
+      if (nextUses > 0) {
+        await db.from('inventory').update({ remaining_uses: nextUses }).eq('id', targetId);
+      } else {
+        await db.from('inventory').delete().eq('id', targetId);
+      }
+
+      await db.from('ships').update({ fuel: newFuel }).eq('id', ship.id);
+
+      // Sync with active voyage if exists
+      if (window._activeVoyageStats) {
+        window._activeVoyageStats.fuel = newFuel;
+      }
+
+      showNotification('CARGA UTILIZADA', `NAVE REESTABELECIDA EM ${recovery}%.`, 'success');
+    }
+
+    // Refresh UI
+    loadShipData();
+    updateUserCreditsDisplay();
+    closeModal();
+    if (type === 'item') loadInventory();
+  }
+
+  async function prepShipTravel(type) {
+    if (type === 'mission') {
+      const db = Auth.db();
+      const user = Auth.getUser();
+      const { data: assignments } = await db.from('mission_assignments').select('*, missions(*)').eq('user_id', user.id).eq('status', 'accepted');
+      if (!assignments?.length) {
+        showNotification('NAVEGAÇÃO', 'NENHUMA MISSÃO ATIVA ENCONTRADA.', 'warning');
+        return;
+      }
+
+      const assignment = assignments[0];
+      const missionData = assignment.missions;
+      let targetPlanet = missionData?.target_planet;
+
+      // Fallback: extract from route if target_planet is missing
+      if (!targetPlanet && missionData?.route) {
+        const parts = missionData.route.split(' -> ');
+        targetPlanet = parts.length > 1 ? parts[parts.length - 1].trim() : parts[0].trim();
+      }
+
+      if (!targetPlanet) {
+        showNotification('NAVEGAÇÃO', 'DESTINO DA MISSÃO NÃO DEFINIDO.', 'error');
+        return;
+      }
+
+      setCustomVoyageDestination(targetPlanet);
+    } else {
+      // Viagem Normal -> Abrir Mapa em modo de seleção
+      window._mapSelectMode = true;
+      Desktop.openApp('map');
+      showNotification('NAVEGAÇÃO', 'SELECIONE O PLANETA DE DESTINO NO MAPA.', 'info');
+    }
+  }
+
+  function initShipApp() {
+    loadShipData();
+    if (window._subscribeShipData) window._subscribeShipData();
+  }
+
+  async function generateTravelTicket(missionId, userId) {
+    const db = Auth.db();
+    if (!db) return;
+
+    const ticket = 'ID-' + Math.random().toString(36).substring(2, 6).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+
+    // Get agent's CURRENT LOCATION from their profile
+    const { data: profile } = await db.from('profiles').select('current_planet').eq('id', userId).single();
+    let currentPlanet = profile?.current_planet || '';
+
+    // Get mission's TARGET planet (destination only)
+    const { data: m } = await db.from('missions').select('route, target_planet').eq('id', missionId).single();
+    let targetPlanet = m?.target_planet || '';
+
+    // Backward compatibility: extract from route if target_planet is not set
+    if (!targetPlanet && m?.route) {
+      const parts = m.route.split(' -> ');
+      targetPlanet = parts.length > 1 ? parts[1] : parts[0];
+    }
+
+    let path = [];
+    if (currentPlanet && targetPlanet && window.MapApp && MapApp.calculateGalacticRoute) {
+      path = MapApp.calculateGalacticRoute(currentPlanet, targetPlanet).map(p => p.id);
+    }
+
+    const { error } = await db.from('travel_registrations').insert({
+      mission_id: missionId,
+      user_id: userId,
+      ticket_code: ticket,
+      status: 'waiting',
+      type: 'agency',
+      current_planet: currentPlanet,
+      target_planet: targetPlanet,
+      path: path
+    });
+
+    if (!error) {
+      showNotification('PASSAGEM EMITIDA', `ID DE VIAGEM: ${ticket}<br>USE NO APP MINHA VIAGEM.`, 'success');
+    }
+  }
+
+  let _lobbySubscription = null;
+  function subscribeTravelLobby(ticketCode) {
+    const db = Auth.db();
+    if (!db) return;
+
+    if (_lobbySubscription) _lobbySubscription.unsubscribe();
+
+    const list = $('lobby-agents-list');
+    const msg = $('lobby-status-msg');
+    const startBtn = $('btn-start-travel');
+
+    const updateUI = async () => {
+      const { data: members } = await db.from('travel_registrations')
+        .select('*, profiles(display_name, username)')
+        .eq('ticket_code', ticketCode);
+
+      if (list) {
+        list.innerHTML = (members || []).map(m => `
+           <div class="agent-row" style="display:flex; justify-content:space-between; padding:8px; background:rgba(0,255,65,0.1); border-left:3px solid var(--green);">
+             <span>${(m.profiles?.display_name || m.profiles?.username || 'AGENTE').toUpperCase()}</span>
+             <span style="color:var(--green); font-size:10px;">[ PRONTO ]</span>
+           </div>
+         `).join('');
+      }
+
+      // Logic: In Agency mode, if there's at least one person, allow starting? 
+      // User said: "when everyone who has IDs enters". 
+      // For now, let's show the button if data exists.
+      if (startBtn) startBtn.classList.remove('hidden');
+      if (msg) msg.textContent = 'PROTOCOLO DE EMBARQUE CONCLUÍDO.';
+    };
+
+    _lobbySubscription = db.channel('public:travel_registrations')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'travel_registrations', filter: `ticket_code=eq.${ticketCode}` }, () => {
+        updateUI();
+      })
+      .subscribe();
+
+    updateUI();
+  }
+
+  function initTravelApp() { }
+
+  /* ══════════════════════════════════════════════════════════
+     DICE ROLL ANIMATION
+  ══════════════════════════════════════════════════════════ */
+  function showDiceAnimation(roll, sec, total, isSuccess) {
+    return new Promise(resolve => {
+      // Prevent overlapping animations
+      if ($('dice-anim-overlay')) $('dice-anim-overlay').remove();
+
+      const overlay = document.createElement('div');
+      overlay.id = 'dice-anim-overlay';
+      overlay.style.cssText = `
+        position: fixed;
+        inset: 0;
+        background: rgba(0,10,0,0.95);
+        z-index: 10000000;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: var(--green);
+        font-family: var(--font-logo);
+        text-align: center;
+      `;
+
+      const title = document.createElement('div');
+      title.textContent = 'VARREDURA DE SETOR';
+      title.style.fontSize = '24px';
+      title.style.marginBottom = '30px';
+      title.className = 'glow blink';
+
+      const diceBox = document.createElement('div');
+      diceBox.style.cssText = `
+        width: 120px;
+        height: 120px;
+        border: 2px solid var(--green);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 48px;
+        margin-bottom: 20px;
+        box-shadow: 0 0 20px var(--green-glow);
+      `;
+
+      const modifierBox = document.createElement('div');
+      modifierBox.style.fontSize = '14px';
+      modifierBox.style.marginTop = '10px';
+      modifierBox.style.opacity = '0';
+      modifierBox.style.transition = 'opacity 0.5s ease';
+      modifierBox.innerHTML = `MODIFICADOR DE SEGURANÇA: <span style="color:var(--amber)">+${sec}</span>`;
+
+      const resultBox = document.createElement('div');
+      resultBox.style.fontSize = '24px';
+      resultBox.style.marginTop = '20px';
+      resultBox.style.opacity = '0';
+      resultBox.style.transition = 'opacity 0.5s ease';
+
+      overlay.appendChild(title);
+      overlay.appendChild(diceBox);
+      overlay.appendChild(modifierBox);
+      overlay.appendChild(resultBox);
+
+      document.body.appendChild(overlay);
+
+      Boot.playBeep(440, 0.1, 0.1);
+
+      let frames = 0;
+      const maxFrames = 30; // 30 frames of rolling
+      const interval = setInterval(() => {
+        diceBox.textContent = Math.floor(Math.random() * 20) + 1;
+        Boot.playBeep(800 + Math.random() * 400, 0.02, 0.05);
+        frames++;
+        if (frames >= maxFrames) {
+          clearInterval(interval);
+          finishRoll();
+        }
+      }, 50);
+
+      function finishRoll() {
+        diceBox.textContent = roll;
+        diceBox.style.color = roll === 1 ? 'var(--red-alert)' : roll === 20 ? 'var(--amber)' : 'var(--green)';
+        diceBox.classList.add('pulse');
+
+        Boot.playBeep(1200, 0.2, 0.2);
+
+        setTimeout(() => {
+          modifierBox.style.opacity = '1';
+          Boot.playBeep(880, 0.1, 0.1);
+
+          setTimeout(() => {
+            resultBox.textContent = `TOTAL: ${total}`;
+            if (isSuccess) {
+              resultBox.innerHTML += `<br><span style="color:var(--green); font-size:36px; display:block; margin-top:10px;" class="glow">SUCESSO</span>`;
+              Boot.playBeep(1500, 0.5, 0.1);
+            } else {
+              resultBox.innerHTML += `<br><span style="color:var(--red-alert); font-size:36px; display:block; margin-top:10px;" class="glow">FALHA</span>`;
+              Boot.playBeep(200, 0.8, 0.5);
+            }
+            resultBox.style.opacity = '1';
+
+            setTimeout(() => {
+              overlay.style.opacity = '0';
+              overlay.style.transition = 'opacity 1s ease';
+              setTimeout(() => { overlay.remove(); resolve(); }, 1000);
+            }, 3500);
+          }, 1000);
+        }, 1000);
+      }
+    });
   }
 
   /* ══════════════════════════════════════════════════════════
@@ -1645,15 +3527,28 @@ const Apps = (() => {
       return '<div class="empty-state"><span class="empty-state-icon">⚠</span>ACESSO RESTRITO — SOMENTE ADMINISTRADORES</div>';
     }
     return `
-      <div class="app-toolbar" style="display:flex; gap:10px;">
-        <button class="btn ${_adminTab === 'agents' ? 'active' : ''}" id="adm-tab-agents">[ AGENTES ]</button>
-        <button class="btn ${_adminTab === 'items' ? 'active' : ''}" id="adm-tab-items">[ FÁBRICA DE ITENS ]</button>
-        <button class="btn" onclick="Apps.showNotification('SISTEMA O.R.T.', 'CANAL DE COMUNICAÇÃO OPERALCIONAL.', 'new-email')">[ TESTAR ALERTA ]</button>
-      </div>
-      <div id="admin-tab-content" style="padding:15px; height:calc(100% - 40px); overflow-y:auto;">
-         ${_adminTab === 'agents' ? renderAdminAgents() : ''}
-         ${_adminTab === 'items' ? renderAdminItems() : ''}
+      <div style="display:grid; grid-template-rows:auto 1fr; height:100%; gap:0;">
+        <div class="app-toolbar" style="display:flex; gap:10px; border-bottom:1px solid var(--border-dim); padding-bottom:15px;">
+          <button class="btn ${_adminTab === 'agents' ? 'active' : ''}" onclick="Apps.switchAdminTab('agents')">[ AGENTES ]</button>
+          <button class="btn ${_adminTab === 'items' ? 'active' : ''}" onclick="Apps.switchAdminTab('items')">[ ITENS ]</button>
+          <button class="btn ${_adminTab === 'travel' ? 'active' : ''}" onclick="Apps.switchAdminTab('travel')">[ VIAGENS ]</button>
+        </div>
+        <div id="admin-tab-content" style="padding:20px; overflow-y:auto;">
+          <div class="loading-state">SINCRONIZANDO MAINFRAME...</div>
+        </div>
       </div>`;
+  }
+
+  function switchAdminTab(tab) {
+    _adminTab = tab;
+    loadAdminTab();
+  }
+
+  function loadAdminTab() {
+    document.querySelectorAll('#overlay-admin .app-toolbar .btn').forEach(b => {
+      b.classList.toggle('active', b.onclick.toString().includes(`'${_adminTab}'`));
+    });
+    renderAdminTabContent();
   }
 
   function renderAdminAgents() {
@@ -1699,6 +3594,8 @@ const Apps = (() => {
                <option value="armor">PROTEÇÃO</option>
                <option value="document">DOCUMENTO / ITEM DE MISSÃO</option>
                <option value="consumable">CONSUMÍVEL</option>
+               <option value="ship">NAVE</option>
+               <option value="fuel">COMBUSTÍVEL</option>
             </select>
           </div>
           <div class="login-field"><label class="login-label">RARIDADE</label>
@@ -1743,6 +3640,92 @@ const Apps = (() => {
     renderAdminTabContent();
   }
 
+  function renderAdminTravel() {
+    return `
+      <div class="login-label" style="margin-bottom:15px;">> CENTRAL DE REGISTROS DE VIAGEM</div>
+      <div style="border-bottom:1px solid var(--border);padding:6px 12px;display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:12px;font-family:var(--font-code);font-size:11px;color:var(--green-mid);letter-spacing:1px;text-transform:uppercase;">
+        <span>TICKET</span><span>AGENTE</span><span>ROTA</span><span>STATUS</span><span>AÇÃO</span>
+      </div>
+      <div id="admin-travel-list"><div class="loading-state">ESCANEANDO TRAJETÓRIAS<span class="loading-dots"></span></div></div>`;
+  }
+
+  async function loadAdminTravels() {
+    const list = $('admin-travel-list');
+    if (!list) return;
+    const db = Auth.db();
+    if (!db) return;
+
+    const { data, error } = await db.from('travel_registrations')
+      .select('*, profiles(display_name, username)')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      list.innerHTML = `<div class="empty-state">ERRO AO CARREGAR: ${error.message}</div>`;
+      return;
+    }
+
+    if (!data?.length) {
+      list.innerHTML = `<div class="empty-state">NENHUMA VIAGEM ATIVA NO MOMENTO</div>`;
+      return;
+    }
+
+    list.innerHTML = data.map(t => {
+      const agent = t.profiles?.display_name || t.profiles?.username || 'Desconhecido';
+      const isPaused = t.is_paused;
+      const routeExtra = isPaused ? `<br><span style="color:var(--red-alert); font-size:9px;">BLOQUEIO: ${t.current_event || 'ANOMALIA'}</span>` : '';
+      const badgeText = isPaused ? 'PAUSADA' : t.status.toUpperCase();
+      const badgeClass = isPaused ? 'status-waiting' : t.status;
+
+      let actionHtml;
+      if (isPaused) {
+        actionHtml = `<div style="display:flex; gap:5px;">
+           <button class="btn" onclick="Apps.resumeAdminTravel('${t.ticket_code}')" style="font-size:10px;padding:3px 6px; border-color:var(--green); color:var(--green);">[ LIBERAR ]</button>
+           <button class="btn btn-action-danger" onclick="Apps.deleteAdminTravel('${t.ticket_code}')" style="font-size:10px;padding:3px 6px;">[ X ]</button>
+        </div>`;
+      } else {
+        actionHtml = `<button class="btn btn-action-danger" onclick="Apps.deleteAdminTravel('${t.ticket_code}')" style="font-size:11px;padding:3px 8px;">[ CANCELAR ]</button>`;
+      }
+
+      return `
+        <div class="admin-user-row" style="grid-template-columns:1fr 1fr 1fr 1fr auto; align-items:center;">
+          <span style="color:var(--amber);">${t.ticket_code}</span>
+          <span>${agent}</span>
+          <span style="font-size:10px; line-height:1.2;">${t.current_planet} -> ${t.target_planet}${routeExtra}</span>
+          <span class="role-badge ${badgeClass}">${badgeText}</span>
+          ${actionHtml}
+        </div>`;
+    }).join('');
+  }
+
+  async function resumeAdminTravel(ticketCode) {
+    const db = Auth.db();
+    const { error } = await db.from('travel_registrations').update({ is_paused: false, current_event: null }).eq('ticket_code', ticketCode);
+    if (!error) {
+      showNotification('ROTA LIBERADA', `A rota para ${ticketCode} foi liberada.`, 'success');
+      loadAdminTravels();
+    } else {
+      showNotification('ERRO AO LIBERAR ROTA', error.message, 'error');
+    }
+  }
+
+  async function deleteAdminTravel(ticketCode) {
+    showModal({
+      title: 'CANCELAR VIAGEM',
+      body: `DESEJA REALMENTE CANCELAR E EXCLUIR O REGISTRO DA VIAGEM ${ticketCode}?`,
+      type: 'confirm',
+      onConfirm: async () => {
+        const db = Auth.db();
+        const { error } = await db.from('travel_registrations').delete().eq('ticket_code', ticketCode);
+        if (!error) {
+          showNotification('VIAGEM CANCELADA', `O registro ${ticketCode} foi removido com sucesso.`, 'success');
+          loadAdminTravels();
+        } else {
+          showNotification('ERRO', error.message, 'error');
+        }
+      }
+    });
+  }
+
   function renderAdminTabContent() {
     // Atualizar UI de abas (classes active)
     document.querySelectorAll('#overlay-admin .app-toolbar .btn').forEach(b => b.classList.remove('active'));
@@ -1766,6 +3749,9 @@ const Apps = (() => {
         if ($('it-weapon-tier-field')) $('it-weapon-tier-field').style.display = cat === 'weapon' ? 'block' : 'none';
       });
       $('btn-save-item')?.addEventListener('click', createItem);
+    } else if (_adminTab === 'travel') {
+      content.innerHTML = renderAdminTravel();
+      loadAdminTravels();
     }
   }
 
@@ -1825,23 +3811,47 @@ const Apps = (() => {
       list.innerHTML = `<div class="empty-state"><span class="empty-state-icon">⚙</span>NENHUM AGENTE CADASTRADO</div>`;
       return;
     }
-    list.innerHTML = data.map(u => `
-      <div class="admin-user-row">
+
+    // Build planet options from GALAXY_DB if available
+    const planetOpts = (typeof GALAXY_DB !== 'undefined' ? GALAXY_DB : []).map(p => p.name).sort();
+    const planetSelHtml = `<select onchange="Apps.changeAgentLocation('USERID', this.value)" style="background:var(--bg-panel);border:1px solid var(--amber);color:var(--amber);font-family:var(--font-code);font-size:10px;padding:3px;cursor:pointer;" title="Localização Atual">OPTS</select>`;
+
+    list.innerHTML = data.map(u => {
+      const planet = u.current_planet || '—';
+      const opts = planetOpts.map(p => `<option value="${p}" ${p === planet ? 'selected' : ''}>${p}</option>`).join('');
+      const planetSel = planetSelHtml.replace('USERID', u.id).replace('OPTS', opts);
+      return `<div class="admin-user-row" style="grid-template-columns:1fr 1fr auto auto auto;">
         <span>${u.display_name || u.username || 'N/A'}</span>
-        <span style="font-family:var(--font-code);font-size:12px;color:var(--green-mid);">${u.email || ''}</span>
+        <span style="font-family:var(--font-code);font-size:11px;color:var(--green-mid);">${u.email || ''}</span>
         <span class="role-badge ${u.role}">${(u.role || '?').toUpperCase()}</span>
+        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start;">
+          <div style="font-size:9px;color:var(--amber);letter-spacing:1px;">LOCALIZAÇÃO:</div>
+          ${planetSel}
+        </div>
         <div style="display:flex;gap:6px;">
           <select onchange="Apps.changeUserRole('${u.id}', this.value)" style="background:transparent;border:1px solid var(--border-dim);color:var(--green-mid);font-family:var(--font-code);font-size:11px;padding:3px;cursor:pointer;">
             ${['admin', 'agent', 'restricted'].map(r => `<option value="${r}" ${u.role === r ? 'selected' : ''}>${r}</option>`).join('')}
           </select>
           <button class="btn btn-danger" onclick="Apps.deleteUser('${u.id}')" style="font-size:11px;padding:3px 8px;">[ DEL ]</button>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   }
 
   async function changeUserRole(userId, role) {
     await Auth.adminUpdateUser(userId, { role });
     loadAdminUsers();
+  }
+
+  async function changeAgentLocation(userId, planet) {
+    const db = Auth.db();
+    if (!db) return;
+    const { error } = await db.from('profiles').update({ current_planet: planet }).eq('id', userId);
+    if (!error) {
+      showNotification('LOCALIZAÇÃO ATUALIZADA', `AGENTE MOVIDO PARA: ${planet.toUpperCase()}`, 'success');
+    } else {
+      showNotification('ERRO', 'FALHA AO ATUALIZAR LOCALIZAÇÃO: ' + error.message, 'error');
+    }
   }
 
   async function deleteUser(userId) {
@@ -2225,8 +4235,8 @@ const Apps = (() => {
 
     toast.onclick = () => {
       toast.remove();
-      if (type === 'new-email') openApp('emails');
-      if (type === 'new-item' || ['common', 'uncommon', 'rare', 'legendary'].includes(type)) openApp('shop');
+      if (type === 'new-email') Desktop.openApp('emails');
+      if (type === 'new-item' || ['common', 'uncommon', 'rare', 'legendary'].includes(type)) Desktop.openApp('shop');
     };
 
     container.appendChild(toast);
@@ -2244,19 +4254,20 @@ const Apps = (() => {
   function showModal(options = {}) {
     const overlay = document.createElement('div');
     overlay.className = 'app-overlay modal-overlay-active';
-    // z-index is handled by CSS class now
 
     const isConfirm = options.type === 'confirm';
+    const content = options.body || options.content || '';
 
     overlay.innerHTML = `
-      <div class="modal-box scan-effect" style="width:min(450px, 90vw);">
-        <div class="modal-header">
-          > ${options.title || 'SISTEMA O.R.T.'}
+      <div class="modal-box scan-effect" style="width:min(450px, 90vw); position:relative;">
+        <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center;">
+          <span>> ${options.title || 'SISTEMA O.R.T.'}</span>
+          <button class="modal-close-btn" style="background:none; border:none; color:var(--green-mid); cursor:pointer; font-family:var(--font-code); font-size:16px; padding:0 5px;">[ X ]</button>
         </div>
         <div class="modal-body">
-          ${options.body || ''}
+          ${content}
         </div>
-        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:12px; padding:12px;">
+        <div class="modal-footer" style="display:${options.noConfirm ? 'none' : 'flex'}; justify-content:flex-end; gap:12px; padding:12px;">
           ${isConfirm ? `<button class="btn btn-danger" id="modal-cancel">[ ${options.cancelText || 'CANCELAR'} ]</button>` : ''}
           <button class="btn" id="modal-confirm" style="background:var(--green); color:var(--bg);">[ ${options.confirmText || 'OK'} ]</button>
         </div>
@@ -2266,16 +4277,38 @@ const Apps = (() => {
     document.body.appendChild(overlay);
     Boot.playBeep(440, 0.05, 0.1);
 
-    overlay.querySelector('#modal-confirm').onclick = () => {
-      if (options.onConfirm) options.onConfirm();
+    const closeModalSelf = () => {
       overlay.remove();
     };
+
+    overlay.onclick = (e) => {
+      if (e.target === overlay) closeModalSelf();
+    };
+
+    const xBtn = overlay.querySelector('.modal-close-btn');
+    if (xBtn) xBtn.onclick = closeModalSelf;
+
+    const confirmBtn = overlay.querySelector('#modal-confirm');
+    if (confirmBtn) {
+      confirmBtn.onclick = () => {
+        if (options.onConfirm) options.onConfirm();
+        closeModalSelf();
+      };
+    }
 
     if (isConfirm && overlay.querySelector('#modal-cancel')) {
       overlay.querySelector('#modal-cancel').onclick = () => {
         if (options.onCancel) options.onCancel();
-        overlay.remove();
+        closeModalSelf();
       };
+    }
+  }
+
+  function closeModal() {
+    const overlays = Array.from(document.querySelectorAll('.app-overlay'));
+    if (overlays.length > 0) {
+      const latest = overlays[overlays.length - 1];
+      latest.remove();
     }
   }
 
@@ -2432,7 +4465,6 @@ const Apps = (() => {
     if (nameEl) nameEl.textContent = name;
 
     loadChatRooms(); // Update active state
-    loadChatMessages(id);
 
     // Close sidebar on mobile after selection
     if (window.innerWidth <= 800) {
@@ -2466,6 +4498,7 @@ const Apps = (() => {
         `;
       }
     }
+    loadChatMessages(id);
   }
 
   async function clearChat(roomId) {
@@ -3088,7 +5121,7 @@ const Apps = (() => {
         const isForMe = email.recipient_id === userId;
 
         if (isAll || isForMe || isAdmin) {
-          showNotification('NOVA COMUNICAÇÃO', `DE: ${email.sender}<br>ASSUNTO: ${email.subject}`, 'new-email');
+          showNotification('NOVA COMUNICAÇÃO', `DE: ${email.sender}<br>ASSUNTO: ${email.subject}`, 'new-message');
           Desktop.updateBadge('emails', 1, true);
         }
       })
@@ -3100,12 +5133,10 @@ const Apps = (() => {
   ══════════════════════════════════════════════════════════ */
   function shop() {
     return `
-      <div style="display:grid; grid-template-rows:auto auto 1fr; height:100%; gap:0;">
+      <div style="display:grid; grid-template-rows:auto 1fr; height:100%; gap:0;">
         <div class="app-toolbar" style="display:flex; justify-content:space-between; align-items:center;">
-          <div style="font-family:var(--font-code); color:var(--amber);">
-            MEUS CRÉDITOS: <span id="shop-user-credits" style="color:var(--green);">CR$ ---</span>
-          </div>
-          <button class="btn" id="btn-shop-refresh">[ ATUALIZAR ESTOQUE ]</button>
+          <div style="font-family:var(--font-code); color:var(--green-mid); font-size:12px;">CATÁLOGO DE PRODUTOS O.R.T.</div>
+          <div id="shop-user-credits" style="font-family:var(--font-code); color:var(--amber); font-weight:bold; font-size:14px; text-shadow:0 0 5px rgba(215,153,33,0.5);">CR$ 0</div>
         </div>
         <div class="shop-filter-bar" style="padding:10px 20px; background:rgba(0,40,0,0.3); border-bottom:1px solid var(--border-dim); display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
            <div class="login-field shop-search-wrapper" style="flex:1; margin:0;">
@@ -3113,12 +5144,17 @@ const Apps = (() => {
            </div>
            <div id="shop-categories" style="display:flex; gap:6px; flex-wrap:wrap;">
               <button class="btn-filter active" data-cat="all">TUDO</button>
-              <button class="btn-filter" data-cat="consumable">CONSUMÍVEIS</button>
+              <button class="btn-filter" data-cat="ship">NAVES</button>
+              <button class="btn-filter" data-cat="fuel">COMBUSTÍVEL</button>
+              <button class="btn-filter" data-cat="weapon">ARMAS</button>
+              <div style="display:flex; gap:4px; border-left:1px solid var(--border-dim); padding-left:10px; margin-left:4px;">
+                <button class="btn-filter" data-cat="weapon_melee" style="font-size:9px; padding:4px 8px;">BRANCAS</button>
+                <button class="btn-filter" data-cat="weapon_small" style="font-size:9px; padding:4px 8px;">PEQUENAS</button>
+                <button class="btn-filter" data-cat="weapon_medium" style="font-size:9px; padding:4px 8px;">MÉDIAS</button>
+                <button class="btn-filter" data-cat="weapon_large" style="font-size:9px; padding:4px 8px;">GRANDES</button>
+              </div>
               <button class="btn-filter" data-cat="armor">ARMADURAS</button>
-              <button class="btn-filter" data-cat="Arma Branca">BRANCAS</button>
-              <button class="btn-filter" data-cat="Arma de Pequeno Porte">PEQUENAS</button>
-              <button class="btn-filter" data-cat="Arma de Médio Porte">MÉDIAS</button>
-              <button class="btn-filter" data-cat="Arma de Grande Porte">GRANDES</button>
+              <button class="btn-filter" data-cat="consumable">CONSUMÍVEIS</button>
            </div>
         </div>
         <div id="shop-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:16px; padding:20px; overflow-y:auto;">
@@ -3129,6 +5165,14 @@ const Apps = (() => {
 
   let shopItemsCache = [];
   let currentShopFilter = 'all';
+
+  function filterShop(cat) {
+    currentShopFilter = cat;
+    document.querySelectorAll('.app-toolbar .btn').forEach(b => {
+      b.classList.toggle('active', b.onclick.toString().includes(`'${cat}'`));
+    });
+    renderShopItems();
+  }
 
   function initShop() {
     loadShopItems();
@@ -3183,12 +5227,18 @@ const Apps = (() => {
 
       let matchesCat = true;
       if (currentShopFilter !== 'all') {
-        // Se for "consumable" ou "armor", checa categoria
-        if (currentShopFilter === 'consumable' || currentShopFilter === 'armor') {
-          matchesCat = item.category === currentShopFilter;
+        if (currentShopFilter.startsWith('weapon_')) {
+          const weaponSub = currentShopFilter.split('_')[1]; // melee, small, medium, large
+          const map = {
+            'melee': ['branca', 'faca', 'espada', 'bastão'],
+            'small': ['pequeno', 'pistola'],
+            'medium': ['médio', 'medio', 'fuzil', 'submetralhadora'],
+            'large': ['grande', 'canhão', 'rifle de precisão']
+          };
+          const keywords = map[weaponSub] || [];
+          matchesCat = item.category === 'weapon' && keywords.some(k => (item.item_type || '').toLowerCase().includes(k));
         } else {
-          // Se for tipo de arma (Porte), checa o item_type
-          matchesCat = item.item_type === currentShopFilter;
+          matchesCat = item.category === currentShopFilter;
         }
       }
 
@@ -3200,19 +5250,21 @@ const Apps = (() => {
       return;
     }
 
-    grid.innerHTML = filtered.map(item => `
-      <div class="shop-card scan-effect" onclick="Apps.showItemDetails(${JSON.stringify(item).replace(/"/g, '&quot;')})">
-        <div class="shop-card-icon">
-          ${item.category === 'weapon' ? '🔫' : (item.category === 'armor' ? '🛡️' : '📦')}
+    grid.innerHTML = filtered.map(i => {
+      const isShip = i.category === 'ship';
+      const isFuel = i.category === 'fuel';
+
+      return `
+      <div class="shop-card ${i.rarity || 'common'}-glow" onclick="Apps.showItemDetails(${JSON.stringify(i).replace(/"/g, '&quot;')})">
+        <div class="shop-item-icon">${i.icon || '📦'}</div>
+        <div class="shop-item-info">
+          <div class="shop-item-name">${i.name}</div>
+          <div class="shop-item-price">CR$ ${i.price}</div>
+          ${isShip ? `<div style="font-size:9px; color:var(--amber); margin-top:4px;">[ NAVE DE CLASSE ${i.rarity?.toUpperCase() || 'BÁSICA'} ]</div>` : ''}
+          ${isFuel ? `<div style="font-size:9px; color:var(--green); margin-top:4px;">[ CARGA DE COMBUSTÍVEL ]</div>` : ''}
         </div>
-        <div class="shop-card-title">${item.name}</div>
-        <div class="shop-card-desc">${item.description || ''}</div>
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:5px; gap:10px;">
-          <span style="color:var(--amber); font-family:var(--font-code); font-size:14px;">CR$ ${item.price.toLocaleString('pt-BR')}</span>
-          <button class="btn" style="font-size:10px; padding:6px 12px; flex-shrink:0;" onclick="event.stopPropagation(); Apps.buyItem('${item.id}', ${item.price})">[ COMPRAR ]</button>
-        </div>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
   }
 
   function showItemDetails(item) {
@@ -3226,7 +5278,22 @@ const Apps = (() => {
 
     const rarity = item.rarity || 'common';
 
-    $('item-detail-icon').textContent = item.category === 'weapon' ? '🔫' : (item.category === 'armor' ? '🛡️' : '📦');
+    if (item.category === 'ship') {
+      let imgName = 'standard.gif';
+      const sName = item.name.toLowerCase();
+      if (sName.includes('cargueiro') || sName.includes('carga')) imgName = 'cargo.gif';
+      else if (sName.includes('caça') || sName.includes('interceptor')) imgName = 'fighter.gif';
+      else if (sName.includes('exploradora') || sName.includes('scout')) imgName = 'scout.gif';
+      else if (sName.includes('pesquisa') || sName.includes('bio') || sName.includes('laboratório')) imgName = 'science.gif';
+
+      $('item-detail-icon').innerHTML = `<img src="img/ships/${imgName}" class="crt-ship" style="max-width:100%; max-height:140px; object-fit:contain; margin-top:5px;" />`;
+      $('item-detail-icon').style.padding = '0';
+      $('item-detail-icon').style.background = 'transparent';
+    } else {
+      $('item-detail-icon').textContent = item.category === 'weapon' ? '🔫' : (item.category === 'armor' ? '🛡️' : '📦');
+      $('item-detail-icon').style.padding = '10px';
+      $('item-detail-icon').style.background = 'rgba(0,255,65,0.05)';
+    }
     $('item-detail-name').textContent = item.name;
     $('item-detail-name').className = rarity; // Cor do nome por raridade
 
@@ -3273,41 +5340,59 @@ const Apps = (() => {
     const user = Auth.getUser();
     if (!db || !user) return;
 
-    const { data: profile } = await db.from('profiles').select('credits').eq('id', user.id).single();
-
-    if (profile.credits < price) {
-      showModal({ title: 'ERRO NA TRANSAÇÃO', body: 'SALDO INSUFICIENTE NO SEU CARTÃO O.R.T.', type: 'alert' });
-      return;
-    }
-
     showModal({
       title: 'CONFIRMAR AQUISIÇÃO',
       body: `DESEJA REALMENTE ADQUIRIR ESTE EQUIPAMENTO POR CR$ ${price}?`,
       type: 'confirm',
       onConfirm: async () => {
-        const newCredits = profile.credits - price;
-        // 1. Atualizar Créditos
-        const { error: credError } = await db.from('profiles').update({ credits: newCredits }).eq('id', user.id);
-        if (credError) {
-          showModal({ title: 'FALHA NO MAINFRAME', body: 'ERRO AO PROCESSAR CRÉDITOS: ' + credError.message, type: 'alert' });
+        const db = Auth.db();
+        const user = Auth.getUser();
+        if (!db || !user) return;
+
+        const { data: profile } = await db.from('profiles').select('credits, current_planet').eq('id', user.id).single();
+
+        if (!profile || profile.credits < price) {
+          showModal({ title: 'CRÉDITOS INSUFICIENTES', body: 'VOCÊ NÃO POSSUI CRÉDITOS SUFICIENTES PARA ESTA AQUISIÇÃO.', type: 'alert' });
           return;
         }
 
-        // 2. Inserir no Inventário
-        const { error: invError } = await db.from('inventory').insert({
-          user_id: user.id,
-          item_id: id,
-          is_equipped: false
-        });
+        const item = shopItemsCache.find(i => i.id === id);
+        if (item && item.category === 'ship') {
+          // Check Hangar Capacity
+          const { data: pData } = await db.from('profiles').select('unlocked_hangar_slots').eq('id', user.id).single();
+          const { data: ownShips } = await db.from('ships').select('id').eq('owner_id', user.id);
+          const slots = pData?.unlocked_hangar_slots || 1;
+          const currentCount = ownShips ? ownShips.length : 0;
 
-        if (!invError) {
-          showNotification('TRANSAÇÃO CONCLUÍDA', 'EQUIPAMENTO ENVIADO PARA O SEU INVENTÁRIO.', 'success');
-          updateUserCreditsDisplay();
-          // Se o inventário estiver aberto, recarregar
-          if ($('inventory-grid')) loadInventory();
+          if (currentCount >= slots) {
+            showModal({ title: 'HANGAR LOTADO', body: 'VOCÊ NÃO POSSUI ESPAÇO DISPONÍVEL NO HANGAR PARA MAIS UMA NAVE.', type: 'alert' });
+            return;
+          }
+
+          // Ship Purchase Logic (Direct to ships table)
+          const plate = 'NX-' + Math.random().toString(36).substring(2, 7).toUpperCase();
+          const { error: shipErr } = await db.from('ships').insert({
+            owner_id: user.id,
+            name: item.name,
+            class: item.rarity || 'common',
+            license_plate: plate,
+            stats: item.technical_meta?.stats || { security: 1, armaments: 1, system: 1 },
+            fuel: 100,
+            current_planet: profile?.current_planet || 'omega'
+          });
+          if (shipErr) {
+            showModal({ title: 'ERRO NO REGISTRO', body: 'FALHA AO REGISTRAR NAVE: ' + shipErr.message, type: 'alert' });
+            return;
+          }
         } else {
-          showModal({ title: 'ERRO LOGÍSTICO', body: 'ITEM PAGO, MAS FALHA AO REGISTRAR NO INVENTÁRIO: ' + invError.message, type: 'alert' });
+          // Normal Item or Fuel Item (Gallons) -> Add to inventory
+          await db.from('inventory').insert({ user_id: user.id, item_id: id });
         }
+
+        await db.from('profiles').update({ credits: profile.credits - price }).eq('id', user.id);
+        showNotification('AQUISIÇÃO CONCLUÍDA', `ITEM REGISTRADO COM SUCESSO.`, 'success');
+        updateUserCreditsDisplay();
+        if (window.Desktop && Desktop.updateHeader) Desktop.updateHeader();
       }
     });
   }
@@ -3331,6 +5416,7 @@ const Apps = (() => {
     subscribeChat();
     subscribeStoreItems();
     subscribeVaultUnlocks();
+    subscribeLocationUpdates();
   }
 
   function subscribeStoreItems() {
@@ -3353,6 +5439,39 @@ const Apps = (() => {
         if (document.getElementById('shop-grid')) loadShopItems();
       })
       .subscribe();
+  }
+
+  function subscribeLocationUpdates() {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    console.log("[REALTIME] Subscribing to location updates for user:", user.id);
+
+    db.channel('location-updates')
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'profiles',
+        filter: `id=eq.${user.id}`
+      }, payload => {
+        console.log("[REALTIME] Profile update detected:", payload.new.current_planet);
+        if (payload.new.current_planet) {
+          renderAgentLocationCard(payload.new.current_planet);
+        }
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'mission_assignments',
+        filter: `user_id=eq.${user.id}`
+      }, payload => {
+        console.log("[REALTIME] Mission assignment change detected:", payload.eventType);
+        renderAgentLocationCard();
+      })
+      .subscribe((status) => {
+        console.log("[REALTIME] Location updates subscription status:", status);
+      });
   }
 
   /* ══════════════════════════════════════════════════════════
@@ -3788,7 +5907,11 @@ const Apps = (() => {
                   <div style="font-family:var(--font-code); font-size:11px; color:var(--green-mid); height:30px; overflow:hidden;">${item.description || ''}</div>
                   <div style="border-top:1px dashed var(--border-dim); margin-top:8px; padding-top:8px; display:flex; justify-content:space-between; align-items:center;">
                      <span style="font-size:10px; color:var(--green-dark);">${(item.item_type || item.category).toUpperCase()}</span>
-                     <span style="font-size:10px; color:var(--amber);">${item.damage_dice || ''}</span>
+                     ${item.category === 'fuel' ? `
+                       <span style="font-size:10px; color:var(--amber);">USOS: ${inv.remaining_uses || item.technical_meta?.initial_uses || 1}/${item.technical_meta?.initial_uses || 1}</span>
+                     ` : `
+                       <span style="font-size:10px; color:var(--amber);">${item.damage_dice || ''}</span>
+                     `}
                   </div>
                 </div>
               `;
@@ -3861,10 +5984,25 @@ const Apps = (() => {
       refreshStats();
     }
 
-    // 4. Consumir Item (Remover do Inventário)
-    await db.from('inventory').delete().eq('id', inventoryId);
+    // 4. Consumir Item (Lógica de múltiplos usos para combustível)
+    if (item.category === 'fuel') {
+      const initialUses = item.technical_meta?.initial_uses || 1;
+      const currentUses = inv.remaining_uses !== undefined ? inv.remaining_uses : initialUses;
+      const nextUses = currentUses - 1;
+
+      if (nextUses > 0) {
+        await db.from('inventory').update({ remaining_uses: nextUses }).eq('id', inventoryId);
+        showNotification('CARGA UTILIZADA', `${item.name.toUpperCase()} REESTABELECIDO. USOS RESTANTES: ${nextUses}`, 'success');
+      } else {
+        await db.from('inventory').delete().eq('id', inventoryId);
+        showNotification('COMBUSTÍVEL ESGOTADO', `${item.name.toUpperCase()} FOI TOTALMENTE CONSUMIDO.`, 'warning');
+      }
+    } else {
+      await db.from('inventory').delete().eq('id', inventoryId);
+      showNotification('ITEM CONSUMIDO', `${item.name.toUpperCase()} UTILIZADO COM SUCESSO.`, 'success');
+    }
+
     loadInventory();
-    showNotification('ITEM CONSUMIDO', `${item.name.toUpperCase()} UTILIZADO COM SUCESSO.`, 'success');
   }
 
   async function toggleEquip(inventoryId, currentlyEquipped, itemCategory, itemType) {
@@ -3967,6 +6105,7 @@ const Apps = (() => {
     }
 
     options += `<div class="context-menu-item" style="color:var(--amber)" onclick="${closeSelf} Apps.sellItem('${invId}', ${localIndex})">[ VENDER ]</div>`;
+    options += `<div class="context-menu-item" style="color:var(--green)" onclick="${closeSelf} Apps.openAgentTransferMenu('${invId}', ${localIndex})">[ TRANSFERIR ]</div>`;
     options += `<div class="context-menu-sep"></div>`;
     options += `<div class="context-menu-item" style="color:var(--red-alert)" onclick="${closeSelf} Apps.dropItem('${invId}')">[ DESCARTAR ]</div>`;
 
@@ -4048,19 +6187,482 @@ const Apps = (() => {
     Boot.playBeep(1200, 0.02, 0.05);
   }
 
+  function copyToClipboard(text, label = "CONTEÚDO") {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      showNotification('SISTEMA', `${label} COPIADO PARA O CLIPBOARD.`, 'success');
+      Boot.playBeep(2000, 0.05, 0.05);
+    }).catch(err => {
+      console.error('Falha ao copiar:', err);
+      showNotification('ERRO', 'FALHA AO ACESSAR O CLIPBOARD.', 'error');
+    });
+  }
+
+  async function renderAgentLocationCard(planetOverride = null) {
+    let container = document.getElementById('agent-location-card');
+    if (!container) {
+      const desktop = document.getElementById('welcome-screen') || document.getElementById('desktop-bg') || document.body;
+      container = document.createElement('div');
+      container.id = 'agent-location-card';
+      container.style.cssText = `
+        position: fixed; bottom: 80px; right: 20px; z-index: 100;
+        width: 240px; background: rgba(0,10,0,0.85);
+        border: 1px solid rgba(0,255,65,0.3); backdrop-filter: blur(4px);
+        font-family: var(--font-code); padding: 12px; pointer-events: all;
+        box-shadow: 0 0 20px rgba(0,255,65,0.1);
+        transition: opacity 0.4s ease; opacity: 0;
+      `;
+      desktop.appendChild(container);
+      setTimeout(() => container.style.opacity = '1', 50);
+    }
+
+    const db = Auth.db();
+    const user = Auth.getUser();
+    let planet = planetOverride || Auth.getProfile()?.current_planet || null;
+
+    if (db && user && !planet) {
+      const { data: p } = await db.from('profiles').select('current_planet').eq('id', user.id).single();
+      if (p?.current_planet) planet = p.current_planet;
+    }
+
+    if (!planet) {
+      container.style.display = 'none';
+      return;
+    }
+
+    const SCALE_FACTOR = 240 / 250;
+    const polarToXY = (pd) => {
+      if (!pd.pos) return { x: 300, y: 300 };
+      const rad = (pd.pos.a * Math.PI) / 180;
+      const x = 300 + pd.pos.r * SCALE_FACTOR * Math.cos(rad);
+      const y = 300 + pd.pos.r * SCALE_FACTOR * Math.sin(rad);
+      return { x, y };
+    };
+
+    let planetPos = { x: 300, y: 300 };
+    let dotsHtml = '';
+    let trajectoryHtml = '';
+
+    if (typeof GALAXY_DB !== 'undefined') {
+      dotsHtml = GALAXY_DB.map(pd => {
+        const { x, y } = polarToXY(pd);
+        const isCurrent = pd.name.toLowerCase() === planet.toLowerCase();
+        if (isCurrent) planetPos = { x, y };
+        const dotColor = isCurrent ? 'var(--green)' : (REGION_COLORS?.[pd.rk] || 'rgba(0,255,100,0.2)');
+        return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${isCurrent ? 3.5 : 1.5}" fill="${dotColor}" opacity="${isCurrent ? 1 : 0.4}"/>`;
+      }).join('');
+
+      // Trajectory from Active Mission
+      try {
+        const { data: assignments } = await db.from('mission_assignments')
+          .select('missions(route, target_planet)')
+          .eq('user_id', user.id)
+          .eq('status', 'accepted')
+          .limit(1);
+
+        if (assignments && assignments.length > 0) {
+          const m = assignments[0].missions;
+          const destName = m.target_planet || m.route;
+          if (destName && destName.toLowerCase() !== planet.toLowerCase()) {
+            if (window.MapApp && MapApp.calculateGalacticRoute) {
+              const path = MapApp.calculateGalacticRoute(planet, destName);
+              if (path && path.length >= 2) {
+                const points = path.map(p => {
+                  const { x, y } = polarToXY(p);
+                  return `${x.toFixed(1)},${y.toFixed(1)}`;
+                }).join(' ');
+                trajectoryHtml = `
+                  <polyline points="${points}" fill="none" stroke="var(--green)" stroke-width="2" stroke-dasharray="8,8" opacity="0.5">
+                    <animate attributeName="stroke-dashoffset" from="160" to="0" dur="8s" repeatCount="indefinite"/>
+                  </polyline>
+                `;
+              }
+            }
+          }
+        }
+      } catch (e) { /* ignore widget background errors */ }
+    }
+
+    container.innerHTML = `
+      <div style="font-size:9px; color:var(--green-dim); letter-spacing:2px; margin-bottom:6px;">◈ LOCALIZAÇÃO ATUAL</div>
+      <div style="font-size:13px; color:var(--green); font-weight:bold; letter-spacing:1px; margin-bottom:8px;">${planet.toUpperCase()}</div>
+      <svg viewBox="0 0 600 600" style="width:100%; height:100px; background:rgba(0,5,0,0.4); border:1px solid rgba(0,255,65,0.1);">
+        ${dotsHtml}
+        ${trajectoryHtml}
+        <g style="filter:drop-shadow(0 0 5px var(--green));">
+          <circle cx="${planetPos.x.toFixed(1)}" cy="${planetPos.y.toFixed(1)}" r="8" fill="none" stroke="var(--green)" stroke-width="2">
+            <animate attributeName="r" from="4" to="16" dur="2s" repeatCount="indefinite"/>
+            <animate attributeName="opacity" from="1" to="0" dur="2s" repeatCount="indefinite"/>
+          </circle>
+          <circle cx="${planetPos.x.toFixed(1)}" cy="${planetPos.y.toFixed(1)}" r="4" fill="var(--green)"/>
+        </g>
+      </svg>
+      <div style="font-size:9px; color:var(--green-dim); margin-top:4px; text-align:center; opacity:0.6;">COORDENADAS SINCRONIZADAS</div>
+    `;
+  }
+
+  async function openAgentTransferMenu(invId, localIndex) {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    const inv = _inventoryItems[localIndex];
+    if (!inv) return;
+    const itemName = inv.store_items?.name?.toUpperCase() || 'ITEM';
+
+    // Fetch all profiles except current user
+    const { data: agents, error } = await db.from('profiles').select('id, display_name, username').neq('id', user.id).order('display_name');
+
+    if (error || !agents) {
+      showNotification('SISTEMA', 'ERRO AO BUSCAR AGENTES.', 'error');
+      return;
+    }
+
+    let agentsHtml = agents.map(agent => `
+      <div class="panel-box" style="margin-bottom:10px; padding:10px; display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div style="color:var(--green); font-weight:bold;">${(agent.display_name || agent.username || 'AGENTE ANONIMO').toUpperCase()}</div>
+          <div style="font-size:9px; color:var(--text-dim); font-family:var(--font-code);">${agent.id.substring(0, 8)}...</div>
+        </div>
+        <button class="btn btn-mini" onclick="Apps.transferItemToAgent('${invId}', '${agent.id}', '${agent.display_name || agent.username}')">[ TRANSFERIR ]</button>
+      </div>
+    `).join('');
+
+    showModal({
+      title: 'CENTRAL DE TRANSFERÊNCIA',
+      body: `
+        <div style="padding:10px;">
+          <p style="font-size:12px; margin-bottom:15px; border-bottom:1px solid var(--border-dim); padding-bottom:10px;">
+            TRANSFERIR: <span style="color:var(--amber); font-weight:bold;">${itemName}</span>
+          </p>
+          <div style="max-height:300px; overflow-y:auto; padding-right:5px;">
+            ${agentsHtml || '<div class="empty-state">NENHUM AGENTE DISPONÍVEL</div>'}
+          </div>
+        </div>
+      `,
+      type: 'alert'
+    });
+  }
+
+  async function transferItemToAgent(invId, targetAgentId, targetName) {
+    const db = Auth.db();
+    if (!db) return;
+
+    showModal({
+      title: 'CONFIRMAR TRANSFERÊNCIA',
+      body: `VOCÊ ESTÁ PRESTES A TRANSFERIR ESTE ITEM PARA <span style="color:var(--green)">${targetName.toUpperCase()}</span>. ESTA AÇÃO NÃO PODE SER DESFEITA. CONFIRMAR?`,
+      type: 'confirm',
+      onConfirm: async () => {
+        try {
+          // Update item ownership and unequip
+          const { error } = await db.from('inventory')
+            .update({
+              user_id: targetAgentId,
+              is_equipped: false
+            })
+            .eq('id', invId);
+
+          if (error) throw error;
+
+          showNotification('TRANSFERÊNCIA CONCLUÍDA', `ITEM ENVIADO PARA ${targetName.toUpperCase()} COM SUCESSO.`, 'success');
+
+          // Close transfer selection modal if open (it uses showModal type 'alert')
+          const modal = document.querySelector('.modal-overlay-active');
+          if (modal) modal.remove();
+
+          loadInventory();
+        } catch (e) {
+          showNotification('ERRO NO SISTEMA', 'FALHA NA TRANSFERÊNCIA: ' + e.message, 'error');
+        }
+      }
+    });
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     HANGAR APP (GARAGEM DE NAVES)
+  ══════════════════════════════════════════════════════════ */
+  function hangarApp() {
+    return `
+      <div class="full" style="padding:20px; display:flex; flex-direction:column; gap:20px; background:var(--bg);">
+        <div style="text-align:center;">
+          <h2 class="glow" style="margin-bottom:5px;">GARAGEM O.R.T. [ HANGAR ]</h2>
+          <p class="text-dim" style="font-size:12px;">GERENCIE SUA FROTA E DETERMINE A NAVE ATIVA DESTA SESSÃO.</p>
+        </div>
+        
+        <!-- Hangar Grid -->
+        <div id="hangar-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:20px; flex:1;">
+           <div class="loading-state" style="grid-column:1/-1;">Sincronizando docas...<span class="loading-dots"></span></div>
+        </div>
+      </div>
+    `;
+  }
+
+  function initHangarApp() {
+    loadHangarData();
+  }
+
+  async function loadHangarData() {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    // 1. Get profile data for slots and active ship
+    const { data: profile } = await db.from('profiles').select('unlocked_hangar_slots, active_ship_id, credits').eq('id', user.id).single();
+    if (!profile) return;
+
+    const slotsUnlocked = profile.unlocked_hangar_slots || 1;
+    const activeShipId = profile.active_ship_id;
+    const credits = profile.credits || 0;
+
+    // 2. Get user's ships
+    const { data: ships } = await db.from('ships').select('*').eq('owner_id', user.id).order('created_at');
+
+    // 3. Get store prices for selling calculations
+    const { data: storeShips } = await db.from('store_items').select('name, price').eq('category', 'ship');
+    const shipPriceMap = {};
+    if (storeShips) storeShips.forEach(s => shipPriceMap[s.name] = s.price);
+
+    const hangarGrid = $('hangar-grid');
+    if (!hangarGrid) return;
+
+    // Preços dos slots fixos para RPG
+    const slotCosts = { 2: 25000, 3: 75000, 4: 200000 };
+    const TOTAL_SLOTS = 4;
+
+    let html = '';
+
+    for (let i = 1; i <= TOTAL_SLOTS; i++) {
+      const isUnlocked = i <= slotsUnlocked;
+      const ship = ships && ships[i - 1] ? ships[i - 1] : null;
+
+      html += `<div class="panel-box scan-effect" style="display:flex; flex-direction:column; height:420px; transition:all 0.3s; position:relative; overflow:hidden;">`;
+
+      html += `<div style="position:absolute; top:10px; left:10px; font-family:var(--font-logo); font-size:24px; color:rgba(0,255,65,0.2); pointer-events:none;">Doca 0${i}</div>`;
+
+      if (!isUnlocked) {
+        // Locked Slot View
+        const cost = slotCosts[i];
+        const canAfford = credits >= cost;
+        html += `
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:15px; background:rgba(255,0,0,0.02); text-align:center; padding:20px;">
+            <div style="font-size:40px; color:var(--red-alert);">🔒</div>
+            <div style="color:var(--red-alert); font-family:var(--font-code); font-size:14px;">ESPAÇO BLOQUEADO</div>
+            <div class="text-dim" style="font-size:11px; margin-bottom:10px;">EXPANDA SUA GARAGEM PARA ARMAZENAR MAIS NAVES.</div>
+            <button class="btn" style="width:100%; border-color:${canAfford ? 'var(--amber)' : 'var(--border-dim)'}; color:${canAfford ? 'var(--amber)' : 'var(--text-dim)'};" 
+                    onclick="Apps.buyHangarSlot(${i}, ${cost})" ${!canAfford ? 'disabled' : ''}>
+              [ COMPRAR DESBLOQUEIO  —  CR$ ${cost.toLocaleString('pt-BR')} ]
+            </button>
+          </div>
+        `;
+      } else if (!ship) {
+        // Unlocked but Empty
+        html += `
+          <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:15px; text-align:center; padding:20px;">
+            <div style="font-size:40px; color:rgba(0,255,65,0.2); filter:blur(2px);">🚀</div>
+            <div class="text-dim" style="font-family:var(--font-code); font-size:14px; letter-spacing:2px;">[ ESPAÇO VÁZIO ]</div>
+            <div style="font-size:10px; color:var(--green-dark);">VISITE A LOJA O.R.T. PARA ADQUIRIR UMA NAVE</div>
+          </div>
+        `;
+      } else {
+        // Ship Occupying Slot
+        const isActive = ship.id === activeShipId;
+        const statusColor = isActive ? 'var(--green)' : 'var(--text-dim)';
+
+        // Define Image based on Name/Type heuristically
+        let imgName = 'standard.gif';
+        const sName = ship.name.toLowerCase();
+        if (sName.includes('cargueiro') || sName.includes('carga')) imgName = 'cargo.gif';
+        else if (sName.includes('caça') || sName.includes('interceptor')) imgName = 'fighter.gif';
+        else if (sName.includes('exploradora') || sName.includes('scout')) imgName = 'scout.gif';
+        else if (sName.includes('pesquisa') || sName.includes('bio') || sName.includes('laboratório')) imgName = 'science.gif';
+
+        const maxPrice = shipPriceMap[ship.name] || 5000;
+        const integrity = ship.integrity !== undefined ? ship.integrity : 100;
+        const sellValue = Math.floor(maxPrice * 0.9 * (integrity / 100));
+
+        html += `
+          <div style="flex:1; display:flex; flex-direction:column; background:linear-gradient(to bottom, rgba(0,0,0,0.8), rgba(0,25,0,0.4));">
+            ${isActive ? '<div style="background:var(--green); color:var(--bg); text-align:center; font-size:10px; font-weight:bold; padding:2px;">NAVE ATIVA DA SESSÃO</div>' : ''}
+            
+            <div style="flex:1; display:flex; justify-content:center; align-items:center; position:relative;">
+              <div style="position:absolute; inset:0; background:radial-gradient(circle at center, rgba(0,255,65,0.1), transparent 70%);"></div>
+              <img src="img/ships/${imgName}" alt="Nave" class="crt-ship" style="max-width:90%; max-height:220px; object-fit:contain; z-index:1; ${isActive ? '' : 'filter:grayscale(60%) opacity(0.5); grayscale(50%);'}">
+            </div>
+
+            <div style="padding:15px; border-top:1px solid var(--border-dim); background:rgba(0,0,0,0.6); z-index:2;">
+              <h3 style="font-size:14px; color:${statusColor}; text-transform:uppercase; margin-bottom:4px; text-shadow:0 0 5px ${statusColor};">
+                ${ship.name}
+              </h3>
+              <div style="display:flex; justify-content:space-between; font-size:10px; font-family:var(--font-code); color:var(--green-mid); margin-bottom:10px;">
+                <span>ID: ${ship.license_plate || '???'}</span>
+                <span>${ship.integrity !== undefined ? ship.integrity : 100}% INT</span>
+              </div>
+              
+              <div style="display:flex; gap:5px; margin-bottom:5px;">
+                ${isActive
+            ? `<button class="btn" style="flex:1; border-color:var(--amber); color:var(--amber);" onclick="Apps.deactivateHangarShip()">[ DESATIVAR ]</button>`
+            : `<button class="btn" style="flex:1; border-color:var(--green); color:var(--green);" onclick="Apps.activateHangarShip('${ship.id}')">[ ATIVAR ]</button>`
+          }
+              </div>
+              <button class="btn" style="width:100%; border-color:var(--red-alert); color:var(--red-alert); font-size:10px;" onclick="Apps.sellHangarShip('${ship.id}', \`${ship.name.replace(/'/g, "\\'").replace(/"/g, '&quot;')}\`, ${sellValue})">
+                [ VENDER: CR$ ${sellValue.toLocaleString('pt-BR')} ]
+              </button>
+            </div>
+          </div>
+        `;
+      }
+
+      html += `</div>`; // end card
+    }
+
+    hangarGrid.innerHTML = html;
+  }
+
+  async function buyHangarSlot(slotIndex, cost) {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    showModal({
+      title: 'ORDEM DE COMPRA: HANGAR O.R.T.',
+      body: `SOLICITAR EXPANSÃO DA DOCA 0${slotIndex} POR <span style="color:var(--amber);">CR$ ${cost.toLocaleString('pt-BR')}</span>?<br><br>ESTA AÇÃO É IRREVERSÍVEL.`,
+      type: 'confirm',
+      onConfirm: async () => {
+        try {
+          const { data: profile } = await db.from('profiles').select('credits').eq('id', user.id).single();
+          if (profile.credits < cost) {
+            showNotification('NEGADO', 'CRÉDITOS INSUFICIENTES.', 'error');
+            return;
+          }
+
+          // Transação (deduzir custo e liberar slot)
+          const { error: updErr } = await db.from('profiles').update({
+            credits: profile.credits - cost,
+            unlocked_hangar_slots: slotIndex
+          }).eq('id', user.id);
+
+          if (updErr) throw updErr;
+
+          showNotification('ACESSO LIBERADO', `DOCA 0${slotIndex} OPERACIONAL.`, 'success');
+          loadHangarData(); // Refresh UI
+          Desktop.updateHeader(await Auth.getProfile(true)); // update credits in UI if needed
+        } catch (e) {
+          showNotification('ERRO', 'FALHA NA TRANSAÇÃO: ' + e.message, 'error');
+        }
+      }
+    });
+  }
+
+  async function activateHangarShip(shipId) {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    try {
+      // 1. Verificar se a nave pertence ao usuário
+      const { data: ship } = await db.from('ships').select('*').eq('id', shipId).single();
+      if (!ship || ship.owner_id !== user.id) {
+        showNotification('NEGADO', 'NAVE NÃO AUTORIZADA PARA ESTE AGENTE.', 'error');
+        return;
+      }
+
+      // 2. Atualizar profile agent active_ship_id
+      const { error } = await db.from('profiles').update({ active_ship_id: shipId }).eq('id', user.id);
+      if (error) throw error;
+
+      showNotification('SISTEMA ROTEADO', `NAVE ${ship.name.toUpperCase()} DEFINIDA COMO PRINCIPAL.`, 'success');
+
+      // Update local profile cache
+      await Auth.getProfile(true);
+
+      loadHangarData(); // refresh hangar
+      if (document.getElementById('ship-details-area')) loadShipData(); // refresh shipApp Se estiver aberto
+
+    } catch (e) {
+      showNotification('ERRO DE SISTEMA', e.message, 'error');
+    }
+  }
+
+  async function deactivateHangarShip() {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    try {
+      const { error } = await db.from('profiles').update({ active_ship_id: null }).eq('id', user.id);
+      if (error) throw error;
+      showNotification('NAVE DESATIVADA', 'SUA NAVE ATUAL FOI RECOLHIDA.', 'success');
+
+      await Auth.getProfile(true);
+      loadHangarData();
+      if (document.getElementById('ship-details-area')) loadShipData();
+    } catch (e) {
+      showNotification('ERRO', 'FALHA AO DESATIVAR NAVE: ' + e.message, 'error');
+    }
+  }
+
+  function sellHangarShip(shipId, shipName, sellValue) {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    showModal({
+      title: 'VENDA DE NAVE',
+      body: `TEM CERTEZA QUE DESEJA VENDER A NAVE <br><b style="color:var(--green);">${shipName}</b><br>POR <span style="color:var(--amber);">CR$ ${sellValue.toLocaleString('pt-BR')}</span>?<br><br>ATENÇÃO: ESTA AÇÃO É IRREVERSÍVEL E A NAVE SERÁ DESMONTADA.`,
+      type: 'confirm',
+      onConfirm: async () => {
+        try {
+          const { data: profile } = await db.from('profiles').select('active_ship_id, credits').eq('id', user.id).single();
+
+          if (profile.active_ship_id === shipId) {
+            await db.from('profiles').update({ active_ship_id: null }).eq('id', user.id);
+          }
+
+          const { error: delErr } = await db.from('ships').delete().eq('id', shipId);
+          if (delErr) throw delErr;
+
+          const newCredits = (profile.credits || 0) + sellValue;
+          const { error: updErr } = await db.from('profiles').update({ credits: newCredits }).eq('id', user.id);
+          if (updErr) throw updErr;
+
+          showNotification('VENDA CONCLUÍDA', `CRÉDITOS RECEBIDOS: CR$ ${sellValue.toLocaleString('pt-BR')}.`, 'success');
+
+          Desktop.updateHeader(await Auth.getProfile(true));
+          loadHangarData();
+          if (document.getElementById('ship-details-area')) loadShipData();
+        } catch (e) {
+          showNotification('ERRO', 'FALHA NA VENDA: ' + e.message, 'error');
+        }
+      }
+    });
+  }
+
   return {
     render, init,
     openLightbox, editArtwork, deleteArtwork, openEmail, deleteEmail,
-    updateMissionStatus, deleteMission, openBriefing,
-    changeUserRole, deleteUser,
+    updateMissionStatus, deleteMission, openBriefing, viewMissionRoute,
+    respondToMission, filterMissions, editMission, saveMissionEdit,
+    changeUserRole, deleteUser, changeAgentLocation,
     showNotification, initGlobalRealtime,
-    showModal, buyItem, showItemDetails,
+    showModal, buyItem, showItemDetails, filterShop,
     initInventory, initStats, initMap, openMugshotUpload,
     deleteItem, selectCombatTarget, toggleEquip, handleItemClick, useItem, dropItem, sellItem,
+    openCargoTransfer,
+    toggleTransferSelect,
+    selectAllTransfer,
+    batchTransfer,
+    prepShipTravel, joinTravelLobby, loadShipData, openRefuelMenu, handleRefuel, setCustomVoyageDestination,
+    switchShipTab, loadLocalShips, viewLocalShip, boardShip, unboardShip,
     saveCombatBio, saveCombatVitals, saveCombatMental, saveCombatAttrs, modVital, modSanity, giveLoot,
     deleteVaultItem, openPadlock, closePadlock, submitPadlock, _padlockType, _padlockBackspace,
+    openAgentTransferMenu, transferItemToAgent,
     openNewDM, openNewGroup, createDM, switchRoom, clearGeneralChat, toggleChatSidebar,
-    clearChat, deleteRoom, _selectGroupIcon
+    clearChat, deleteRoom, _selectGroupIcon,
+    switchAdminTab, loadAdminItems, loadCombatAgents, deleteAdminTravel, resumeAdminTravel,
+    copyToClipboard, renderAgentLocationCard,
+    hangarApp, initHangarApp, buyHangarSlot, activateHangarShip,
+    deactivateHangarShip, sellHangarShip
   };
 
 })();
+window.Apps = Apps;
