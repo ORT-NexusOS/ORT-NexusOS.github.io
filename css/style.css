@@ -609,3 +609,43 @@ select option {
   transition: height 0.5s ease;
   border-top: 2px solid var(--green);
 }
+
+/* ── Mobile Responsiveness ────────────────────────────────── */
+@media (max-width: 600px) {
+
+  html,
+  body {
+    font-size: 19px;
+    /* Smaller base font for mobile */
+  }
+
+  .text-xl {
+    font-size: 22px;
+  }
+
+  .text-large {
+    font-size: 18px;
+  }
+
+  .btn {
+    font-size: 16px;
+    padding: 5px 12px;
+  }
+
+  /* Agent Location Card Mobile Fix */
+  #agent-location-card {
+    right: 15px !important;
+    left: auto !important;
+    bottom: 85px !important;
+    width: 180px !important;
+    padding: 8px 12px !important;
+  }
+
+  #agent-location-card h4 {
+    font-size: 12px;
+  }
+
+  #agent-location-card .planet-name {
+    font-size: 18px !important;
+  }
+}

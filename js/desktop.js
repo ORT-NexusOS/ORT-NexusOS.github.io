@@ -197,6 +197,7 @@ const Desktop = (() => {
         { id: 'shipApp', icon: '🚀', label: 'Minha\nNave', module: 'shipApp' },
         { id: 'travelApp', icon: '🛰️', label: 'Minha\nViagem', module: 'travelApp' },
         { id: 'hangarApp', icon: '🛠️', label: 'Garagem\nO.R.T.', module: 'hangarApp' },
+        { id: 'nexusBank', icon: '🏦', label: 'Nexus\nBank', module: 'nexusBank' },
     ];
 
     function renderIconGrid(profile) {

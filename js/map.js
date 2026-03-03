@@ -218,9 +218,12 @@ function map() {
     <div class="map-container">
       <!-- Sidebar for Regions -->
       <aside class="map-sidebar">
-        <div class="sidebar-header">
-          <span style="font-size:18px">🪐</span>
-          <span>ATLAS ESTELAR</span>
+        <div class="sidebar-header" style="justify-content: space-between;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:18px">🪐</span>
+            <span>ATLAS ESTELAR</span>
+          </div>
+          <button id="btn-close-map-sidebar" class="btn-close-sidebar" title="Fechar Atlas">×</button>
         </div>
         
         <div class="region-list" id="map-region-list">
@@ -330,6 +333,7 @@ function map() {
 
         <div class="map-controls">
           <button id="reset-zoom" title="Resetar Zoom">⌂</button>
+          <button id="btn-toggle-atlas" class="btn-toggle-atlas" title="Atlas Estelar">🪐 ATLAS</button>
         </div>
       </div>
 
@@ -353,8 +357,24 @@ async function initMap() {
   const elementsLayer = document.getElementById('map-elements');
   mapZoomGroup = document.getElementById('map-zoom-group');
   const viewer = document.getElementById('planet-viewer');
+  const toggleAtlasBtn = document.getElementById('btn-toggle-atlas');
 
   if (!elementsLayer || !mapContainer || !mapZoomGroup) return;
+
+  if (toggleAtlasBtn) {
+    toggleAtlasBtn.onclick = () => {
+      const sidebar = document.querySelector('.map-sidebar');
+      if (sidebar) sidebar.classList.toggle('mobile-visible');
+    };
+  }
+
+  const closeSidebarBtn = document.getElementById('btn-close-map-sidebar');
+  if (closeSidebarBtn) {
+    closeSidebarBtn.onclick = () => {
+      const sidebar = document.querySelector('.map-sidebar');
+      if (sidebar) sidebar.classList.remove('mobile-visible');
+    };
+  }
 
   renderGalaxy();
 
@@ -572,10 +592,14 @@ function renderGalaxy() {
     dot.setAttribute('fill', REGION_COLORS[p.rk] || '#00ff41');
     dot.setAttribute('class', 'map-planet-dot');
     dot.setAttribute('filter', 'url(#glow)');
-    dot.onclick = () => openPlanetViewer(p.id);
-
     const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     label.setAttribute('class', 'map-planet-label');
+    // Auto-close sidebar on mobile after clicking a planet
+    dot.onclick = () => {
+      const sidebar = document.querySelector('.map-sidebar');
+      if (sidebar && window.innerWidth <= 800) sidebar.classList.remove('mobile-visible');
+      openPlanetViewer(p.id);
+    };
     label.textContent = p.name;
 
     // Hover Events for Labels
@@ -1043,5 +1067,6 @@ window.MapApp = {
   init: initMap,
   setMissionRoute: setMissionRoute,
   calculateGalacticRoute: calculateGalacticRoute,
-  updateMissionRoutes: updateMissionRoutes
+  updateMissionRoutes: updateMissionRoutes,
+  getDist: getDist
 };

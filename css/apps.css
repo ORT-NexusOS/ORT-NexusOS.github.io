@@ -3327,6 +3327,40 @@
     transform: rotate(90deg);
 }
 
+/* -- Sidebar Close Button -- */
+.btn-close-sidebar {
+    background: none;
+    border: none;
+    color: var(--green-dim);
+    font-size: 28px;
+    cursor: pointer;
+    transition: color 0.3s, transform 0.3s;
+    line-height: 1;
+    display: none;
+    /* Desktop hidden */
+}
+
+.btn-close-sidebar:hover {
+    color: var(--red-alert);
+}
+
+/* -- Agent Location Card Responsive Variables & Overrides -- */
+#agent-location-card {
+    transition: all 0.3s ease;
+    overflow: hidden;
+}
+
+.agent-location-header {
+    cursor: default;
+}
+
+.location-toggle-icon {
+    display: none;
+    font-size: 10px;
+    color: var(--green-mid);
+    transition: transform 0.3s ease;
+}
+
 /* -- Detail View Internal -- */
 .planet-detail-view {
     display: flex;
@@ -3522,6 +3556,8 @@
     filter: drop-shadow(0 0 10px rgba(0, 255, 65, 0.2));
 }
 
+/* -- Media Queries -- */
+
 @media (max-width: 1000px) {
     .map-container {
         grid-template-columns: 220px 1fr;
@@ -3544,7 +3580,24 @@
 
 @media (max-width: 800px) {
     .map-sidebar {
-        display: none;
+        position: fixed;
+        left: -320px;
+        top: 0;
+        bottom: 0;
+        z-index: 1000;
+        transition: left 0.3s ease;
+        background: rgba(0, 10, 0, 0.95);
+        border-right: 1px solid var(--green-mid);
+        width: 320px;
+        max-width: 90vw;
+    }
+
+    .map-sidebar.mobile-visible {
+        left: 0;
+    }
+
+    .btn-close-sidebar {
+        display: block;
     }
 
     .map-container {
@@ -3552,15 +3605,109 @@
     }
 
     .viewer-content {
-        padding: 25px;
+        padding: 15px;
     }
 
     .detail-header {
         flex-direction: column;
         text-align: center;
-        gap: 20px;
+        gap: 15px;
+    }
+
+    .p-visual {
+        width: 140px;
+        height: 140px;
+    }
+
+    .p-visual svg,
+    .p-visual img {
+        width: 120px;
+        height: 120px;
+    }
+
+    .p-main-info h2 {
+        font-size: 24px;
+        letter-spacing: 2px;
+    }
+
+    .detail-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .detail-section p {
+        font-size: 13px;
+        line-height: 1.5;
+        text-align: left;
+    }
+
+    /* Agent Location Card Mobile behavior */
+    #agent-location-card {
+        bottom: 85px !important;
+        right: 15px !important;
+        left: auto !important;
+        width: 180px !important;
+        padding: 8px 12px !important;
+        border-radius: 6px;
+        background: rgba(0, 15, 0, 0.95) !important;
+        /* Start collapsed */
+        max-height: 48px;
+    }
+
+    .agent-location-header {
+        cursor: pointer;
+    }
+
+    .location-toggle-icon {
+        display: inline-block;
+    }
+
+    .agent-location-body {
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        pointer-events: none;
+        margin-top: 10px;
+        border-top: 1px solid var(--border-dim);
+        padding-top: 10px;
+    }
+
+    /* Expanded State */
+    #agent-location-card.mobile-expanded {
+        max-height: 300px;
+    }
+
+    #agent-location-card.mobile-expanded .agent-location-body {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    #agent-location-card.mobile-expanded .location-toggle-icon {
+        transform: rotate(180deg);
+    }
+
+    .btn-toggle-atlas {
+        display: block !important;
+        position: fixed;
+        bottom: 25px;
+        left: 20px;
+        z-index: 1100;
+        background: rgba(0, 20, 0, 0.9);
+        border: 1px solid var(--green);
+        color: var(--green);
+        padding: 10px 20px;
+        font-family: var(--font-code);
+        font-size: 14px;
+        letter-spacing: 2px;
+        box-shadow: 0 0 15px var(--green-glow);
+        pointer-events: all;
     }
 }
+
+/* Hide toggle button on desktop */
+.btn-toggle-atlas {
+    display: none;
+}
+
 
 .panel-box {
     background: rgba(0, 40, 0, 0.3);

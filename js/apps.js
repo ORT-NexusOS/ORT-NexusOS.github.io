@@ -24,6 +24,7 @@ const Apps = (() => {
     shipApp: { icon: '🚀', title: 'MINHA NAVE', path: 'O.R.T. > SEC > SHIP' },
     hangarApp: { icon: '🛠️', title: 'GARAGEM O.R.T. (HANGAR)', path: 'O.R.T. > SEC > HANGAR' },
     travelApp: { icon: '🛰️', title: 'MINHA VIAGEM', path: 'O.R.T. > OPS > TRAVEL' },
+    nexusBank: { icon: '🏦', title: 'NEXUS BANK', path: 'O.R.T. > FINANCE > BANK' },
   };
 
   let activeRoomId = '00000000-0000-0000-0000-000000000001';
@@ -48,7 +49,7 @@ const Apps = (() => {
   /* ── Render HTML ─────────────────────────────────────────── */
   function render(appId) {
     try {
-      const renders = { gallery, videos, missions, emails, chat, shop, map: mapRender, notepad, vault, calendar, terminal, combat, admin, stats: statsPage, inventory: inventoryPage, shipApp, hangarApp, travelApp };
+      const renders = { gallery, videos, missions, emails, chat, shop, map: mapRender, notepad, vault, calendar, terminal, combat, admin, stats: statsPage, inventory: inventoryPage, shipApp, hangarApp, travelApp, nexusBank };
       return titlebar(appId) + `<div class="app-content" id="content-${appId}">` +
         (renders[appId] ? renders[appId]() : '<div class="empty-state">EM DESENVOLVIMENTO</div>') +
         '</div>';
@@ -65,7 +66,7 @@ const Apps = (() => {
       emails: initEmails, chat: initChat, shop: initShop, map: mapInit,
       notepad: initNotepad, vault: initVault,
       calendar: initCalendar, terminal: initTerminal, combat: initCombat, admin: initAdmin,
-      stats: initStats, inventory: initInventory, shipApp: initShipApp, hangarApp: initHangarApp, travelApp: initTravelApp
+      stats: initStats, inventory: initInventory, shipApp: initShipApp, hangarApp: initHangarApp, travelApp: initTravelApp, nexusBank: initNexusBank
     };
     if (inits[appId]) {
       setTimeout(() => {
@@ -620,27 +621,55 @@ const Apps = (() => {
     if (!id) return;
 
     const db = Auth.db();
-    if (!db) return;
+    const user = Auth.getUser();
+    if (!db || !user) return;
 
-    // Register user as waiting in this lobby
-    await db.from('travel_registrations').update({ status: 'waiting' }).eq('ticket_code', id).eq('user_id', Auth.getUser().id);
+    // Handle Commercial Flights (COM-)
+    if (id.startsWith('COM-')) {
+      const baseCode = id.split('-').slice(0, 2).join('-');
+      const { data: comFlight } = await db.from('commercial_flights').select('*').eq('ticket_code', baseCode).maybeSingle();
+      if (!comFlight) return showNotification('ERRO', 'Voo comercial não encontrado ou código inválido.', 'error');
 
-    // Detect voyage type for z-index
-    const { data: reg } = await db.from('travel_registrations').select('type').eq('ticket_code', id).maybeSingle();
+      const { data: existingReg } = await db.from('travel_registrations').select('id').eq('ticket_code', id).eq('user_id', user.id).maybeSingle();
+
+      if (!existingReg) {
+        const profile = Auth.getProfile();
+        await db.from('travel_registrations').insert({
+          user_id: user.id,
+          ship_id: profile?.active_ship_id || null, // passengers might not have a ship rigged
+          ticket_code: id,
+          status: 'ready',
+          type: 'commercial',
+          current_planet: comFlight.origin,
+          target_planet: comFlight.destination,
+          path: []
+        });
+      } else {
+        await db.from('travel_registrations').update({ status: 'ready' }).eq('id', existingReg.id);
+      }
+    } else {
+      // Normal private or mission flights logic
+      await db.from('travel_registrations').update({ status: 'ready' }).eq('ticket_code', id);
+    }
+
+    // Detect voyage type and get mission_id to group lobby
+    const { data: reg } = await db.from('travel_registrations').select('type, mission_id').eq('ticket_code', id).eq('user_id', user.id).maybeSingle();
 
     $('travel-lobby').classList.add('hidden');
     $('active-lobby-view').classList.remove('hidden');
 
-    subscribeTravelLobby(id);
+    // Subscribe using mission_id if available, otherwise just use the ticket_code (for private flights)
+    const lobbyId = reg?.type === 'commercial' ? id.split('-').slice(0, 2).join('-') : (reg?.mission_id ? `mission_${reg.mission_id}` : id);
+    subscribeTravelLobby(lobbyId, reg?.type === 'commercial' ? null : reg?.mission_id, reg?.type);
 
-    $('btn-start-travel').onclick = () => startVoyage(id);
+    $('btn-start-travel').onclick = () => startVoyage(id, reg?.type === 'commercial' ? null : reg?.mission_id);
     const overlay = $('travel-animation-overlay');
     if (overlay && reg) {
       overlay.style.zIndex = reg.type === 'private' ? '6500' : '10001';
     }
   }
 
-  async function startVoyage(ticketCode) {
+  async function startVoyage(ticketCode, missionId, isAutoLeap = false) {
     const db = Auth.db();
     const user = Auth.getUser();
     if (!db || !user) return;
@@ -653,6 +682,8 @@ const Apps = (() => {
     if (closeBtn) closeBtn.style.display = 'none';
 
     overlay.classList.remove('hidden');
+
+    // Get the travel registration regardless of who created it
     const { data: registration, error: regError } = await db.from('travel_registrations')
       .select('*, ships(*)')
       .eq('ticket_code', ticketCode)
@@ -664,8 +695,45 @@ const Apps = (() => {
       return;
     }
 
+    // UPDATE STATUS TO ACTIVE (This triggers auto-transport for others via Realtime)
+    // For missions, anyone in the lobby can start the voyage once everyone is ready
+    if (registration.status === 'waiting' || registration.status === 'ready') {
+      if (registration.type === 'commercial') {
+        const baseCode = ticketCode.split('-').slice(0, 2).join('-');
+        await db.from('commercial_flights').update({ status: 'active' }).eq('ticket_code', baseCode);
+        await db.from('travel_registrations').update({ status: 'active' }).like('ticket_code', `${baseCode}-%`);
+        const lobbyChannelName = 'public:travel_registrations:' + baseCode;
+        const channel = db.channel(lobbyChannelName);
+        channel.send({ type: 'broadcast', event: 'jump_start', payload: { ticket: ticketCode, mission: null } });
+      } else if (missionId) {
+        // Activate ALL tickets associated with this mission
+        await db.from('travel_registrations').update({ status: 'active' }).eq('mission_id', missionId);
+        // Force broadcast leap for mission peers
+        const lobbyChannelName = 'public:travel_registrations:mission_' + missionId;
+        const channel = db.channel(lobbyChannelName);
+        channel.send({ type: 'broadcast', event: 'jump_start', payload: { ticket: ticketCode, mission: missionId } });
+      } else if (registration.user_id === user.id) {
+        // Private travel, only the owner can start
+        await db.from('travel_registrations').update({ status: 'active' }).eq('ticket_code', ticketCode);
+        const lobbyChannelName = 'public:travel_registrations:' + ticketCode;
+        const channel = db.channel(lobbyChannelName);
+        channel.send({ type: 'broadcast', event: 'jump_start', payload: { ticket: ticketCode, mission: null } });
+      }
+    }
+
     const isPrivate = registration.type === 'private';
+    const isPilot = registration.user_id === user.id;
     const ship = registration.ships;
+
+    // Hide controls if not the pilot
+    if (!isPilot) {
+      if ($('btn-abort-voyage')) $('btn-abort-voyage').style.display = 'none';
+      if ($('btn-next-jump')) $('btn-next-jump').style.display = 'none';
+      if ($('btn-roll-scanners')) $('btn-roll-scanners').style.display = 'none';
+      if ($('btn-travel-refuel')) $('btn-travel-refuel').style.display = 'none';
+      if ($('btn-finish-voyage')) $('btn-finish-voyage').style.display = 'none';
+    }
+
     const log = $('travel-event-log');
     const markerGroup = $('travel-ship-marker-group');
     const vizContainer = $('travel-viz-container');
@@ -859,6 +927,13 @@ const Apps = (() => {
         }
 
         pausePhase = await new Promise(resolve => {
+          if (isAutoLeap) {
+            // For auto-travelers (passengers or mission agents), they just follow the pilot's flow
+            // Optionally wait for the pilot to advance if we wanted strict sync, but simulating the route is usually fine.
+            setTimeout(() => resolve('clear'), 800); // Small delay to sync visually
+            return;
+          }
+
           if (nextJumpBtn) {
             nextJumpBtn.onclick = () => {
               nextJumpBtn.style.display = 'none';
@@ -997,13 +1072,28 @@ const Apps = (() => {
       log.scrollTop = log.scrollHeight;
     }
 
-    await db.from('travel_registrations').delete().eq('ticket_code', ticketCode);
+    // Sync Ship location as well
+    if (ship?.id) {
+      await db.from('ships').update({ current_planet: finalArrival }).eq('id', ship.id);
+    }
+
+    if (registration.type === 'commercial') {
+      const baseCode = ticketCode.split('-').slice(0, 2).join('-');
+      if (isPilot) await db.from('commercial_flights').update({ status: 'finished' }).eq('ticket_code', baseCode);
+      await db.from('travel_registrations').delete().like('ticket_code', `${baseCode}-%`).eq('user_id', user.id);
+    } else if (registration.mission_id) {
+      await db.from('travel_registrations').delete().eq('mission_id', registration.mission_id).eq('user_id', user.id);
+    } else {
+      await db.from('travel_registrations').delete().eq('ticket_code', ticketCode).eq('user_id', user.id);
+    }
 
     // Sincronizar localização de todos os passageiros ao pousar
     const allCrewToUpdate = [user.id];
-    const { data: currentCrew } = await db.from('ship_passengers').select('user_id').eq('ship_id', ship.id);
-    if (currentCrew) {
-      currentCrew.forEach(p => { if (p.user_id) allCrewToUpdate.push(p.user_id); });
+    if (ship?.id) {
+      const { data: currentCrew } = await db.from('ship_passengers').select('user_id').eq('ship_id', ship.id);
+      if (currentCrew) {
+        currentCrew.forEach(p => { if (p.user_id) allCrewToUpdate.push(p.user_id); });
+      }
     }
 
     // Atualização em lote (Supabase)
@@ -1104,21 +1194,35 @@ const Apps = (() => {
       </div>
       <div id="missions-add-form" class="hidden" style="background:var(--bg-panel);border:1px solid var(--border-dim);padding:16px;margin-bottom:16px;">
         <div style="display:grid;gap:10px;margin-bottom:12px;">
-          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:12px;">
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:10px; margin-bottom:12px;">
             <div class="login-field">
-              <label class="login-label">&gt; CÓDIGO DA MISSÃO (EX: M-001)</label>
+              <label class="login-label">&gt; CÓDIGO (EX: M-001)</label>
               <input type="text" id="m-code" placeholder="M-XXX">
             </div>
             <div class="login-field">
-              <label class="login-label">&gt; RECOMPENSA (CR$)</label>
-              <input type="number" id="m-reward" value="0">
+              <label class="login-label">&gt; CLASSIFICAÇÃO</label>
+              <select id="m-class" style="width:100%; color:var(--green);">
+                 <option value="E">E - ROTINA</option>
+                 <option value="D">D - INVESTIGAÇÃO</option>
+                 <option value="C">C - RISCO MODERADO</option>
+                 <option value="B">B - ANOMALIA</option>
+                 <option value="A">A - AMEAÇA ALTA</option>
+                 <option value="S">S - EXTINÇÃO</option>
+              </select>
             </div>
             <div class="login-field">
-              <label class="login-label">&gt; RECOMPENSA ITEM (LOOT)</label>
+              <label class="login-label">&gt; RECOMPENSA (CR$)</label>
+              <input type="number" id="m-reward" value="300" readonly style="background:rgba(0,100,0,0.1); border-color:var(--green-dim); color:var(--amber); font-weight:bold;">
+            </div>
+            <div class="login-field">
+              <label class="login-label">&gt; RECOMPENSA LOOT</label>
               <select id="m-loot-reward" style="width:100%; border-color:var(--amber); color:var(--amber);">
                  <option value="">-- NENHUM --</option>
               </select>
             </div>
+          </div>
+          <div id="reward-calc-info" style="font-size:10px; color:var(--green-dim); margin-top:-10px; margin-bottom:10px; font-family:var(--font-code); padding:4px 8px; border:1px dashed rgba(0,255,65,0.1);">
+            MATEMÁTICA: BASE + (DISTÂNCIA × 2 CR) + BÔNUS REGIONAL
           </div>
           <div class="login-field">
             <label class="login-label">&gt; DESIGNAR AGENTES</label>
@@ -1189,14 +1293,66 @@ const Apps = (() => {
     $('btn-add-mission')?.addEventListener('click', async () => {
       $('missions-add-form')?.classList.toggle('hidden');
       if (!$('missions-add-form')?.classList.contains('hidden')) {
-        renderMissionAgentSelector();
+        await renderMissionAgentSelector();
         loadLootRewards();
         populateRouteSelectors();
+
+        // Add listeners for dynamic reward update
+        $('m-class')?.addEventListener('change', calculateMissionReward);
+        $('m-route-dest')?.addEventListener('change', calculateMissionReward);
+        // Delegate for checkboxes since they are dynamic
+        $('m-assign-container')?.addEventListener('change', (e) => {
+          if (e.target.name === 'm-assign-check') calculateMissionReward();
+        });
       }
     });
 
     $('btn-cancel-mission')?.addEventListener('click', () => $('missions-add-form')?.classList.add('hidden'));
     $('btn-save-mission')?.addEventListener('click', saveMission);
+  }
+
+  async function calculateMissionReward() {
+    const classVal = $('m-class')?.value;
+    const destPlanetName = $('m-route-dest')?.value;
+    const firstAgentCheck = document.querySelector('input[name="m-assign-check"]:checked');
+    const display = $('m-reward');
+    const info = $('reward-calc-info');
+
+    if (!classVal || !destPlanetName || !firstAgentCheck) {
+      if (display) display.value = 300;
+      if (info) info.innerHTML = 'MATEMÁTICA: AGUARDANDO DADOS (SELECIONE AGENTE + DESTINO)';
+      return;
+    }
+
+    const bases = { 'E': 300, 'D': 800, 'C': 1500, 'B': 3500, 'A': 8000, 'S': 20000 };
+    let base = bases[classVal] || 0;
+    let distanceCharge = 0;
+    let hazardBonus = 0;
+
+    const galaxy = typeof GALAXY_DB !== 'undefined' ? GALAXY_DB : [];
+    const targetPlanet = galaxy.find(p => p.name === destPlanetName);
+
+    // Fetch designated agent's planet
+    const db = Auth.db();
+    if (!db) return;
+    const { data: profile } = await db.from('profiles').select('current_planet').eq('id', firstAgentCheck.value).single();
+    const originPlanetName = profile?.current_planet || 'Sítio Keter';
+    const originPlanet = galaxy.find(p => p.name === originPlanetName);
+
+    if (targetPlanet && originPlanet && typeof MapApp !== 'undefined' && MapApp.getDist) {
+      const dist = MapApp.getDist(originPlanet, targetPlanet);
+      distanceCharge = Math.floor(dist * 2);
+    }
+
+    if (targetPlanet && targetPlanet.rk === 'vale') {
+      hazardBonus = 1000;
+    }
+
+    const total = base + distanceCharge + hazardBonus;
+    if (display) display.value = total;
+    if (info) {
+      info.innerHTML = `ANÁLISE: CLASSE ${classVal} (${base}) + ROTA ${distanceCharge} ${hazardBonus ? '+ RISCO VALE ' + hazardBonus : ''} = TOTAL ${total.toLocaleString()} CR`;
+    }
   }
 
   async function loadLootRewards() {
@@ -1242,13 +1398,15 @@ const Apps = (() => {
     if (db) {
       const dest = $('m-route-dest');
       const targetPlanet = dest?.value || '';
-      const routeValue = targetPlanet; // Only store the destination, origin comes from agent profile
+      const routeValue = targetPlanet;
       const transport = $('m-transport')?.value || 'Nenhum';
+      const mClass = $('m-class')?.value || 'E';
 
       const { data: mission, error: e1 } = await db.from('missions').insert({
         title: code.toUpperCase() + (desc ? ' — ' + desc.toUpperCase() : ''),
         description: briefing,
         status: 'ativa',
+        classification: mClass,
         reward: parseInt(reward),
         loot_item_id: lootId || null,
         assigned_to: assign,
@@ -1271,6 +1429,12 @@ const Apps = (() => {
           status: 'pending'
         }));
         await db.from('mission_assignments').insert(assignments);
+
+        // Pre-generate SHARED ticket if it's "Agência" transport
+        if (transport === 'Agência') {
+          const ticket = 'ID-' + Math.random().toString(36).substring(2, 6).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+          await db.from('missions').update({ shared_ticket_code: ticket }).eq('id', mission.id);
+        }
       }
     }
     $('missions-add-form')?.classList.add('hidden');
@@ -1344,17 +1508,21 @@ const Apps = (() => {
 
       return `
       <div class="mission-row" style="${isRejected ? 'background:rgba(255,34,0,0.08); border-color:rgba(255,34,0,0.3);' : ''}">
-        <div style="flex:1; cursor:pointer;" onclick="Apps.openBriefing('${m.id}')">
-          <div class="mission-title">${m.title} <span style="font-size:10px;color:var(--green-dark);">[CLIQUE PARA BRIEFING]</span></div>
-          <div class="mission-desc" style="${isRejected ? 'color:rgba(255,255,255,0.6);' : ''}">${m.description || ''}</div>
-          <div style="font-size:10px; color:var(--green-mid);">
-            STATUS: <span style="color:${statusColor}; font-weight:bold;">${(m.assignment_status || 'DESIGNADA').toUpperCase()}</span>
+        <div style="flex:1;">
+          <div style="cursor:pointer;" onclick="Apps.openBriefing('${m.id}')">
+            <div class="mission-title">${m.title} <span style="font-size:10px;color:var(--green-dark);">[CLIQUE PARA BRIEFING]</span></div>
+            <div class="mission-desc" style="${isRejected ? 'color:rgba(255,255,255,0.6);' : ''}">${m.description || ''}</div>
+            <div style="font-size:10px; color:var(--green-mid);">
+              STATUS: <span style="color:${statusColor}; font-weight:bold;">${(m.assignment_status || 'DESIGNADA').toUpperCase()}</span>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:4px; align-items:flex-end;">
+          <div style="color:var(--amber); font-family:var(--font-code); display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
+             <span>CR$ ${m.reward || 0}</span>
+             ${m.store_items ? `<span style="font-size:9px; color:var(--green-dim); border:1px solid var(--green-dim); padding:1px 4px;">+ ${m.store_items.name.toUpperCase()}</span>` : ''}
           </div>
           ${ticketRow}
-        </div>
-        <div style="color:var(--amber); font-family:var(--font-code); display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
-           <span>CR$ ${m.reward || 0}</span>
-           ${m.store_items ? `<span style="font-size:9px; color:var(--green-dim); border:1px solid var(--green-dim); padding:1px 4px;">+ ${m.store_items.name.toUpperCase()}</span>` : ''}
         </div>
         <div style="display:flex; flex-direction:column; gap:4px; align-items:center;">
           ${Auth.isAdmin() ?
@@ -1391,16 +1559,67 @@ const Apps = (() => {
 
         for (const userId of ids) {
           if (m.reward > 0) {
+            let finalReward = m.reward;
+            let loanDeduction = 0;
+
+            // 1. Check for active loan (Agiota's Cut)
+            const { data: activeLoan } = await db.from('bank_loans')
+              .select('id, remaining_amount')
+              .eq('user_id', userId)
+              .eq('status', 'active')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .single();
+
+            if (activeLoan && activeLoan.remaining_amount > 0) {
+              // Intercept 20% of the reward
+              loanDeduction = Math.floor(m.reward * 0.20);
+              if (loanDeduction > activeLoan.remaining_amount) {
+                loanDeduction = activeLoan.remaining_amount; // don't overcharge
+              }
+
+              finalReward = m.reward - loanDeduction;
+
+              const newDebt = activeLoan.remaining_amount - loanDeduction;
+              const newStatus = newDebt <= 0 ? 'paid' : 'active';
+
+              // Pay down loan
+              await db.from('bank_loans').update({
+                remaining_amount: newDebt,
+                status: newStatus
+              }).eq('id', activeLoan.id);
+
+              // Record loan payment transaction
+              await db.from('bank_transactions').insert({
+                user_id: userId,
+                type: 'mission_discount',
+                amount: loanDeduction,
+                description: `DEDUÇÃO DE MISSÃO (AGIOTA) REF: ${m.title.substring(0, 10)}...`
+              });
+            }
+
+            // 2. Pay remaining credits
             const { data: p } = await db.from('profiles').select('credits').eq('id', userId).single();
-            if (p) await db.from('profiles').update({ credits: p.credits + m.reward }).eq('id', userId);
+            if (p) {
+              await db.from('profiles').update({ credits: p.credits + finalReward }).eq('id', userId);
+
+              // Record mission reward transaction
+              await db.from('bank_transactions').insert({
+                user_id: userId,
+                type: 'transfer_in',
+                amount: finalReward,
+                description: `PAGAMENTO DE MISSÃO: ${m.title.substring(0, 20)}...`
+              });
+            }
           }
+
           if (m.loot_item_id) {
             await db.from('inventory').insert({ user_id: userId, item_id: m.loot_item_id, is_equipped: false });
           }
         }
 
         const rewardMsg = m.loot_item_id ? `CR$ ${m.reward} E ITENS` : `CR$ ${m.reward}`;
-        showNotification('MISSÃO CONCLUÍDA', `RECOMPENSA (${rewardMsg}) DISTRIBUÍDA PARA AGENTES QUE ACEITARAM.`, 'success');
+        showNotification('MISSÃO CONCLUÍDA', `RECOMPENSA (${rewardMsg}) DISTRIBUÍDA PARA AGENTES. (DEDUÇÕES APLICADAS SE HOUVER DÍVIDA).`, 'success');
       }
     }
 
@@ -1452,6 +1671,7 @@ const Apps = (() => {
     if ($('m-code')) $('m-code').value = m.title.split(' — ')[0];
     if ($('m-desc')) $('m-desc').value = m.title.split(' — ')[1] || '';
     if ($('m-briefing')) $('m-briefing').value = m.description || '';
+    if ($('m-class')) $('m-class').value = m.classification || 'E';
     if ($('m-reward')) $('m-reward').value = m.reward || 0;
 
     await loadLootRewards();
@@ -1476,6 +1696,9 @@ const Apps = (() => {
         if (assignedIds.includes(cb.value)) cb.checked = true;
       });
     }
+
+    // Trigger calculation info display
+    setTimeout(() => calculateMissionReward(), 300);
   }
 
   async function saveMissionEdit(id) {
@@ -1495,12 +1718,16 @@ const Apps = (() => {
     const checks = document.querySelectorAll('input[name="m-assign-check"]:checked');
     const assignList = Array.from(checks).map(c => c.value);
 
+    const mClass = $('m-class')?.value || 'E';
+
     const { error: e1 } = await db.from('missions').update({
       title: code.toUpperCase() + (desc ? ' — ' + desc.toUpperCase() : ''),
       description: briefing,
+      classification: mClass,
       reward: reward,
       loot_item_id: lootId,
-      route: routeValue,
+      route: routeValue || dest,
+      target_planet: dest,
       transport_mode: transport
     }).eq('id', id);
 
@@ -1655,13 +1882,20 @@ const Apps = (() => {
     if (status === 'accepted') {
       showNotification('MISSÃO ACEITA', 'A MISSÃO FOI ADICIONADA AO SEU PAINEL ATIVO.', 'success');
 
-      const { data: mission } = await db.from('missions').select('*').eq('id', missionId).single();
-      if (mission?.transport_mode === 'Agência') {
-        generateTravelTicket(missionId, user.id);
+      try {
+        const { data: mission } = await db.from('missions').select('*').eq('id', missionId).single();
+        if (mission?.transport_mode === 'Agência') {
+          // Check if user is already at the destination, but still generate ticket so they can sync up with lobby
+          await generateTravelTicket(missionId, user.id);
+        }
+      } catch (e) {
+        console.error("Error generating ticket on accept:", e);
       }
+    } else if (status === 'rejected') {
+      showNotification('MISSÃO RECUSADA', 'A MISSÃO FOI MOVIDA PARA O ARQUIVO DE RECUSADAS.', 'warning');
+    } else if (status === 'pending') {
+      showNotification('PROTOCOLO REINICIADO', 'A SOLICITAÇÃO FOI REENVIADA AO AGENTE.', 'info');
     }
-    if (status === 'rejected') showNotification('MISSÃO RECUSADA', 'A MISSÃO FOI MOVIDA PARA O ARQUIVO DE RECUSADAS.', 'warning');
-    if (status === 'pending') showNotification('PROTOCOLO REINICIADO', 'A SOLICITAÇÃO FOI REENVIADA AO AGENTE.', 'info');
   }
 
   /* ══════════════════════════════════════════════════════════
@@ -2558,14 +2792,37 @@ const Apps = (() => {
   ══════════════════════════════════════════════════════════ */
   function travelApp() {
     return `
-      <div id="travel-lobby" class="full flex center" style="flex-direction:column; padding:40px; text-align:center;">
-        <h2 class="glow" style="margin-bottom:20px;">CENTRAL DE VIAGENS</h2>
-        <div class="panel" style="width:400px; padding:30px;">
+      <div id="travel-lobby" class="full flex" style="flex-direction:column; padding:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; border-bottom:1px solid var(--border-dim); padding-bottom:10px;">
+           <h2 class="glow" style="margin:0;">CENTRAL DE VIAGENS</h2>
+           <div class="tabs" style="display:flex; gap:10px;">
+             <button class="btn active" id="tab-travel-lobby" onclick="Apps.switchTravelTab('lobby')">[ LOBBY / ID ]</button>
+             <button class="btn" id="tab-travel-board" onclick="Apps.switchTravelTab('board')">[ PARTIDAS ]</button>
+             <button class="btn" id="tab-travel-mine" onclick="Apps.switchTravelTab('mine')">[ MINHAS PASSAGENS ]</button>
+           </div>
+        </div>
+        
+        <!-- View: LOBBY / ID MANUAL -->
+        <div id="travel-view-lobby" class="travel-view panel flex center" style="flex-direction:column; padding:30px; height:300px; margin:auto; width:400px; max-width:100%;">
           <div class="login-field">
             <label class="login-label">&gt; INSERIR ID DE VIAGEM / SESSÃO</label>
             <input type="text" id="travel-id-input" placeholder="ID-XXXX-XXXX" style="text-align:center; font-size:20px; letter-spacing:3px;">
           </div>
           <button class="btn" onclick="Apps.joinTravelLobby()" style="width:100%; margin-top:20px; height:50px; font-size:20px;">[ ACESSAR LOBBY ]</button>
+        </div>
+
+        <!-- View: PARTIDAS (QUADRO) -->
+        <div id="travel-view-board" class="travel-view hidden" style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
+           <div id="travel-board-list" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:10px;"></div>
+        </div>
+
+        <!-- View: MINHAS PASSAGENS & COMPRAR -->
+        <div id="travel-view-mine" class="travel-view hidden" style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
+           <div style="margin-bottom:15px; display:flex; justify-content:space-between; align-items:flex-end;">
+              <span class="stat-label">SUAS PASSAGENS EMITIDAS</span>
+              <button class="btn" onclick="Apps.openBuyTicketModal()" style="border-color:var(--green); color:var(--green);">[ + EMITIR NOVAS PASSAGENS ]</button>
+           </div>
+           <div id="travel-mine-list" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:10px;"></div>
         </div>
       </div>
       <div id="active-lobby-view" class="hidden panel full flex center" style="flex-direction:column; padding:40px; text-align:center;">
@@ -3127,26 +3384,20 @@ const Apps = (() => {
     const db = Auth.db();
     if (!db) return;
 
-    const ticket = 'ID-' + Math.random().toString(36).substring(2, 6).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
-
     // Get agent's CURRENT LOCATION from their profile
     const { data: profile } = await db.from('profiles').select('current_planet').eq('id', userId).single();
-    let currentPlanet = profile?.current_planet || '';
+    let currentPlanet = profile?.current_planet || 'Capitolio';
 
-    // Get mission's TARGET planet (destination only)
-    const { data: m } = await db.from('missions').select('route, target_planet').eq('id', missionId).single();
+    const { data: m } = await db.from('missions').select('*').eq('id', missionId).single();
     let targetPlanet = m?.target_planet || '';
-
-    // Backward compatibility: extract from route if target_planet is not set
-    if (!targetPlanet && m?.route) {
-      const parts = m.route.split(' -> ');
-      targetPlanet = parts.length > 1 ? parts[1] : parts[0];
-    }
 
     let path = [];
     if (currentPlanet && targetPlanet && window.MapApp && MapApp.calculateGalacticRoute) {
       path = MapApp.calculateGalacticRoute(currentPlanet, targetPlanet).map(p => p.id);
     }
+
+    // Generate UNIQUE ticket for this specific agent's travel registration
+    const ticket = 'ID-' + Math.random().toString(36).substring(2, 6).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
 
     const { error } = await db.from('travel_registrations').insert({
       mission_id: missionId,
@@ -3161,11 +3412,13 @@ const Apps = (() => {
 
     if (!error) {
       showNotification('PASSAGEM EMITIDA', `ID DE VIAGEM: ${ticket}<br>USE NO APP MINHA VIAGEM.`, 'success');
+    } else {
+      console.error("Failed to generate travel ticket:", error);
     }
   }
 
   let _lobbySubscription = null;
-  function subscribeTravelLobby(ticketCode) {
+  function subscribeTravelLobby(lobbyId, missionId, travelType) {
     const db = Auth.db();
     if (!db) return;
 
@@ -3176,12 +3429,45 @@ const Apps = (() => {
     const startBtn = $('btn-start-travel');
 
     const updateUI = async () => {
-      const { data: members } = await db.from('travel_registrations')
-        .select('*, profiles(display_name, username)')
-        .eq('ticket_code', ticketCode);
+      let members = [];
+      let assignedCount = 1; // Default to 1 for private non-mission travels
+
+      if (travelType === 'commercial') {
+        const { data } = await db.from('travel_registrations')
+          .select('*, profiles(display_name, username)')
+          .like('ticket_code', `${lobbyId}-%`);
+        members = data || [];
+
+        const { data: comFlight } = await db.from('commercial_flights')
+          .select('total_tickets')
+          .eq('ticket_code', lobbyId)
+          .maybeSingle();
+        assignedCount = comFlight?.total_tickets || 1;
+      } else if (missionId) {
+        const { data } = await db.from('travel_registrations')
+          .select('*, profiles(display_name, username)')
+          .eq('mission_id', missionId);
+        members = data || [];
+
+        const { data: assignments } = await db.from('mission_assignments')
+          .select('user_id')
+          .eq('mission_id', missionId)
+          .in('status', ['accepted', 'active']);
+        assignedCount = assignments?.length || 1;
+      } else {
+        const { data } = await db.from('travel_registrations')
+          .select('*, profiles(display_name, username)')
+          .eq('ticket_code', lobbyId);
+        members = data || [];
+      }
+
+      // People are joined only if they opened the lobby with their ticket (status active/ready/waiting, but 'ready' means they clicked Join)
+      const readyMembers = members.filter(m => m.status === 'ready' || m.status === 'active');
+      const joinedCount = readyMembers.length;
 
       if (list) {
-        list.innerHTML = (members || []).map(m => `
+        // Show only the members that have successfully 'joined' the lobby
+        list.innerHTML = readyMembers.map(m => `
            <div class="agent-row" style="display:flex; justify-content:space-between; padding:8px; background:rgba(0,255,65,0.1); border-left:3px solid var(--green);">
              <span>${(m.profiles?.display_name || m.profiles?.username || 'AGENTE').toUpperCase()}</span>
              <span style="color:var(--green); font-size:10px;">[ PRONTO ]</span>
@@ -3189,16 +3475,32 @@ const Apps = (() => {
          `).join('');
       }
 
-      // Logic: In Agency mode, if there's at least one person, allow starting? 
-      // User said: "when everyone who has IDs enters". 
-      // For now, let's show the button if data exists.
-      if (startBtn) startBtn.classList.remove('hidden');
-      if (msg) msg.textContent = 'PROTOCOLO DE EMBARQUE CONCLUÍDO.';
+      const allJoined = joinedCount >= assignedCount;
+
+      if (startBtn) {
+        startBtn.classList.toggle('hidden', !allJoined);
+        startBtn.style.display = ''; // Clear inline block from previous attempts
+      }
+
+      if (msg) {
+        if (allJoined) {
+          msg.innerHTML = '<span style="color:var(--green);">PROTOCOLO DE EMBARQUE CONCLUÍDO.</span>';
+        } else {
+          msg.innerHTML = `<span style="color:var(--amber);">AGUARDANDO TRIPULAÇÃO DESIGNADA (${joinedCount}/${assignedCount})</span>`;
+        }
+      }
     };
 
-    _lobbySubscription = db.channel('public:travel_registrations')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'travel_registrations', filter: `ticket_code=eq.${ticketCode}` }, () => {
+    const filterString = travelType === 'commercial' ? null : (missionId ? `mission_id=eq.${missionId}` : `ticket_code=eq.${lobbyId}`);
+
+    _lobbySubscription = db.channel('public:travel_registrations:' + lobbyId)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'travel_registrations', ...(filterString ? { filter: filterString } : {}) }, () => {
         updateUI();
+      })
+      .on('broadcast', { event: 'jump_start' }, (payload) => {
+        // Received hyperspace signal from another crew member!
+        if ($('travel-id-input')) $('travel-id-input').value = payload.payload.ticket;
+        startVoyage(payload.payload.ticket, payload.payload.mission, true);
       })
       .subscribe();
 
@@ -3531,6 +3833,7 @@ const Apps = (() => {
         <div class="app-toolbar" style="display:flex; gap:10px; border-bottom:1px solid var(--border-dim); padding-bottom:15px;">
           <button class="btn ${_adminTab === 'agents' ? 'active' : ''}" onclick="Apps.switchAdminTab('agents')">[ AGENTES ]</button>
           <button class="btn ${_adminTab === 'items' ? 'active' : ''}" onclick="Apps.switchAdminTab('items')">[ ITENS ]</button>
+          <button class="btn ${_adminTab === 'missions' ? 'active' : ''}" onclick="Apps.switchAdminTab('missions')">[ MISSÕES ]</button>
           <button class="btn ${_adminTab === 'travel' ? 'active' : ''}" onclick="Apps.switchAdminTab('travel')">[ VIAGENS ]</button>
         </div>
         <div id="admin-tab-content" style="padding:20px; overflow-y:auto;">
@@ -3635,6 +3938,7 @@ const Apps = (() => {
 
     $('adm-tab-agents')?.addEventListener('click', () => { _adminTab = 'agents'; renderAdminTabContent(); });
     $('adm-tab-items')?.addEventListener('click', () => { _adminTab = 'items'; renderAdminTabContent(); });
+    $('adm-tab-missions')?.addEventListener('click', () => { _adminTab = 'missions'; renderAdminTabContent(); });
     $('adm-tab-combat')?.addEventListener('click', () => { _adminTab = 'combat'; renderAdminTabContent(); });
 
     renderAdminTabContent();
@@ -3726,6 +4030,72 @@ const Apps = (() => {
     });
   }
 
+  function renderAdminMissions() {
+    return `
+      <div class="login-label" style="margin-bottom:15px;">> CENTRAL DE COMANDO DE MISSÕES (GLOBAL)</div>
+      <div style="border-bottom:1px solid var(--border);padding:6px 12px;display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:12px;font-family:var(--font-code);font-size:11px;color:var(--green-mid);letter-spacing:1px;text-transform:uppercase;">
+        <span>CÓDIGO / TÍTULO</span><span>DESIGNADOS</span><span>DESTINO</span><span>RECOMPENSA</span><span>AÇÃO</span>
+      </div>
+      <div id="admin-missions-list"><div class="loading-state">ESCANER DE CONTRATOS ATIVOS<span class="loading-dots"></span></div></div>`;
+  }
+
+  async function loadAdminMissions() {
+    const list = $('admin-missions-list');
+    if (!list) return;
+    const db = Auth.db();
+    if (!db) return;
+
+    const { data: missions, error } = await db.from('missions')
+      .select('*, mission_assignments(profiles(display_name, username))')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      list.innerHTML = `<div class="empty-state">ERRO AO CARREGAR: ${error.message}</div>`;
+      return;
+    }
+
+    if (!missions?.length) {
+      list.innerHTML = `<div class="empty-state">NENHUMA MISSÃO REGISTRADA NO SISTEMA</div>`;
+      return;
+    }
+
+    list.innerHTML = missions.map(m => {
+      const designados = m.mission_assignments?.map(a => a.profiles?.display_name || a.profiles?.username || 'Desconhecido').join(', ') || 'Sem Atribuição';
+
+      return `
+        <div class="admin-user-row" style="grid-template-columns:1fr 1fr 1fr 1fr auto; align-items:center;">
+          <span style="color:var(--green); font-weight:bold;">${m.title}</span>
+          <span style="font-size:10px;">${designados}</span>
+          <span style="font-size:10px;">${m.target_planet || 'N/A'}</span>
+          <span style="color:var(--amber);">${m.reward?.toLocaleString() || 0} CR</span>
+          <button class="btn btn-action-danger" onclick="Apps.deleteAdminMission('${m.id}')" style="font-size:11px;padding:3px 8px;">[ EXCLUIR ]</button>
+        </div>`;
+    }).join('');
+  }
+
+  async function deleteAdminMission(id) {
+    showModal({
+      title: 'CONFIRMAR EXCLUSÃO GLOBAL',
+      body: 'ESTA AÇÃO IRÁ APAGAR A MISSÃO PARA TODOS OS AGENTES DESIGNADOS. CONTINUAR?',
+      type: 'confirm',
+      onConfirm: async () => {
+        const db = Auth.db();
+        if (!db) return;
+
+        // Manual cleanup of assignments just in case cascade is not set
+        await db.from('mission_assignments').delete().eq('mission_id', id);
+
+        const { error } = await db.from('missions').delete().eq('id', id);
+        if (!error) {
+          showNotification('MISSÃO APAGADA', 'A missão foi removida do banco de dados global.', 'success');
+          loadAdminMissions();
+        } else {
+          showNotification('ERRO AO APAGAR', error.message, 'error');
+        }
+      }
+    });
+  }
+
   function renderAdminTabContent() {
     // Atualizar UI de abas (classes active)
     document.querySelectorAll('#overlay-admin .app-toolbar .btn').forEach(b => b.classList.remove('active'));
@@ -3752,6 +4122,9 @@ const Apps = (() => {
     } else if (_adminTab === 'travel') {
       content.innerHTML = renderAdminTravel();
       loadAdminTravels();
+    } else if (_adminTab === 'missions') {
+      content.innerHTML = renderAdminMissions();
+      loadAdminMissions();
     }
   }
 
@@ -5417,6 +5790,7 @@ const Apps = (() => {
     subscribeStoreItems();
     subscribeVaultUnlocks();
     subscribeLocationUpdates();
+    subscribeTravelAutoTransport();
   }
 
   function subscribeStoreItems() {
@@ -5472,6 +5846,31 @@ const Apps = (() => {
       .subscribe((status) => {
         console.log("[REALTIME] Location updates subscription status:", status);
       });
+  }
+
+  function subscribeTravelAutoTransport() {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    db.channel('public:travel_auto_transport')
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'travel_registrations',
+        filter: `user_id=eq.${user.id}`
+      }, payload => {
+        // If status changes to 'active', trigger HUD automatically for everyone on this ticket
+        if (payload.new.status === 'active' && (payload.old.status === 'waiting' || payload.old.status === 'ready') && payload.new.user_id === user.id) {
+          console.log("[TRAVEL] Auto-transporting to HUD:", payload.new.ticket_code);
+          Desktop.openApp('travelApp');
+          setTimeout(() => {
+            if ($('travel-id-input')) $('travel-id-input').value = payload.new.ticket_code;
+            Apps.startVoyage(payload.new.ticket_code, payload.new.mission_id);
+          }, 500);
+        }
+      })
+      .subscribe();
   }
 
   /* ══════════════════════════════════════════════════════════
@@ -6284,20 +6683,27 @@ const Apps = (() => {
     }
 
     container.innerHTML = `
-      <div style="font-size:9px; color:var(--green-dim); letter-spacing:2px; margin-bottom:6px;">◈ LOCALIZAÇÃO ATUAL</div>
-      <div style="font-size:13px; color:var(--green); font-weight:bold; letter-spacing:1px; margin-bottom:8px;">${planet.toUpperCase()}</div>
-      <svg viewBox="0 0 600 600" style="width:100%; height:100px; background:rgba(0,5,0,0.4); border:1px solid rgba(0,255,65,0.1);">
-        ${dotsHtml}
-        ${trajectoryHtml}
-        <g style="filter:drop-shadow(0 0 5px var(--green));">
-          <circle cx="${planetPos.x.toFixed(1)}" cy="${planetPos.y.toFixed(1)}" r="8" fill="none" stroke="var(--green)" stroke-width="2">
-            <animate attributeName="r" from="4" to="16" dur="2s" repeatCount="indefinite"/>
-            <animate attributeName="opacity" from="1" to="0" dur="2s" repeatCount="indefinite"/>
-          </circle>
-          <circle cx="${planetPos.x.toFixed(1)}" cy="${planetPos.y.toFixed(1)}" r="4" fill="var(--green)"/>
-        </g>
-      </svg>
-      <div style="font-size:9px; color:var(--green-dim); margin-top:4px; text-align:center; opacity:0.6;">COORDENADAS SINCRONIZADAS</div>
+      <div class="agent-location-header" onclick="document.getElementById('agent-location-card').classList.toggle('mobile-expanded')">
+        <div style="font-size:9px; color:var(--green-dim); letter-spacing:2px; margin-bottom:6px;">◈ LOCALIZAÇÃO ATUAL</div>
+        <div style="font-size:13px; color:var(--green); font-weight:bold; letter-spacing:1px; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center;">
+          <span>${planet.toUpperCase()}</span>
+          <span class="location-toggle-icon">▼</span>
+        </div>
+      </div>
+      <div class="agent-location-body">
+        <svg viewBox="0 0 600 600" style="width:100%; height:100px; background:rgba(0,5,0,0.4); border:1px solid rgba(0,255,65,0.1);">
+          ${dotsHtml}
+          ${trajectoryHtml}
+          <g style="filter:drop-shadow(0 0 5px var(--green));">
+            <circle cx="${planetPos.x.toFixed(1)}" cy="${planetPos.y.toFixed(1)}" r="8" fill="none" stroke="var(--green)" stroke-width="2">
+              <animate attributeName="r" from="4" to="16" dur="2s" repeatCount="indefinite"/>
+              <animate attributeName="opacity" from="1" to="0" dur="2s" repeatCount="indefinite"/>
+            </circle>
+            <circle cx="${planetPos.x.toFixed(1)}" cy="${planetPos.y.toFixed(1)}" r="4" fill="var(--green)"/>
+          </g>
+        </svg>
+        <div style="font-size:9px; color:var(--green-dim); margin-top:4px; text-align:center; opacity:0.6;">COORDENADAS SINCRONIZADAS</div>
+      </div>
     `;
   }
 
@@ -6637,6 +7043,880 @@ const Apps = (() => {
     });
   }
 
+  /* ══════════════════════════════════════════════════════════
+     COMMERCIAL FLIGHTS LOGIC
+  ══════════════════════════════════════════════════════════ */
+
+  function switchTravelTab(tab) {
+    ['lobby', 'board', 'mine'].forEach(t => {
+      const btn = $('tab-travel-' + t);
+      const view = $('travel-view-' + t);
+      if (btn) btn.classList.toggle('active', t === tab);
+      if (view) {
+        if (t === tab) view.classList.remove('hidden');
+        else view.classList.add('hidden');
+      }
+    });
+
+    if (tab === 'board') loadCommercialBoard();
+    if (tab === 'mine') loadMyCommercialTickets();
+  }
+
+  async function loadCommercialBoard() {
+    const db = Auth.db();
+    if (!db) return;
+    const list = $('travel-board-list');
+    if (!list) return;
+
+    list.innerHTML = `<div class="empty-state">ATUALIZANDO ROTAS...</div>`;
+    const { data: flights } = await db.from('commercial_flights')
+      .select('*, profiles:buyer_id(display_name, username)')
+      .in('status', ['scheduled', 'active'])
+      .order('created_at', { ascending: false });
+
+    if (!flights || !flights.length) {
+      list.innerHTML = `<div class="empty-state">NENHUM VOO COMERCIAL AGENDADO NO MOMENTO.</div>`;
+      return;
+    }
+
+    list.innerHTML = flights.map(f => {
+      const isBoarding = f.status === 'scheduled';
+      const color = isBoarding ? 'var(--amber)' : 'var(--green)';
+      const statusText = isBoarding ? 'EMBARQUE' : 'EM TRÂNSITO';
+      const buyer = (f.profiles?.display_name || f.profiles?.username || 'AGENTE DESCONHECIDO').toUpperCase();
+      return `
+        <div style="background:rgba(0,0,0,0.4); border:1px solid var(--border-dim); padding:15px; display:flex; justify-content:space-between; align-items:center;">
+          <div>
+             <div style="color:var(--green-mid); font-family:var(--font-code); font-size:12px;">VOO: <span style="color:white;">${f.ticket_code}</span></div>
+             <div style="font-size:16px; margin:5px 0;">${(f.origin || 'DESCONHECIDO').toUpperCase()} <span style="color:var(--amber);">🡒</span> ${f.destination.toUpperCase()}</div>
+             <div style="color:var(--green-dark); font-size:10px;">OPERADOR: ${buyer}</div>
+          </div>
+          <div style="text-align:right;">
+             <div class="blink" style="color:${color}; font-size:14px; margin-bottom:10px;">[ ${statusText} ]</div>
+             <div style="color:var(--green-mid); font-size:10px;">CAPACIDADE: ${f.total_tickets}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function loadMyCommercialTickets() {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+    const list = $('travel-mine-list');
+    if (!list) return;
+
+    list.innerHTML = `<div class="empty-state">CARREGANDO SUAS PASSAGENS...</div>`;
+    const { data: flights } = await db.from('commercial_flights')
+      .select('*')
+      .eq('buyer_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (!flights || !flights.length) {
+      list.innerHTML = `<div class="empty-state">VOCÊ NÃO POSSUI PASSAGENS EMITIDAS.</div>`;
+      return;
+    }
+
+    list.innerHTML = flights.map(f => {
+      const isBoarding = f.status === 'scheduled';
+      const bg = isBoarding ? 'rgba(0,255,65,0.05)' : 'rgba(0,0,0,0.3)';
+
+      let ticketsHtml = '';
+      for (let i = 1; i <= f.total_tickets; i++) {
+        const specificCode = `${f.ticket_code}-${i}`;
+        ticketsHtml += `
+            <div style="background:#000; padding:5px 10px; margin-top:5px; font-family:var(--font-code); font-size:16px; color:white; display:flex; justify-content:space-between; align-items:center; cursor:pointer; border:1px solid var(--border-dim);" onclick="navigator.clipboard.writeText('${specificCode}'); Apps.showNotification('CÓDIGO COPIADO', '${specificCode}', 'success');">
+               <span>PASSAGEM ${i}:</span>
+               <span style="color:var(--green);">${specificCode}</span>
+            </div>
+         `;
+      }
+
+      return `
+        <div style="background:${bg}; border:1px solid var(--border-dim); padding:15px; margin-bottom:10px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid rgba(0,255,65,0.2); padding-bottom:5px;">
+             <span style="color:var(--amber); font-size:16px;">VOO: ${f.origin.toUpperCase()} 🡒 ${f.destination.toUpperCase()}</span>
+             <div>
+                <span style="color:${isBoarding ? 'var(--amber)' : 'var(--green-mid)'}; font-size:12px; margin-right: 10px;">[ ${f.status.toUpperCase()} ]</span>
+                ${isBoarding ? `<button class="btn btn-sm" style="color:var(--amber); border-color:var(--amber); font-size:10px; padding:2px 5px;" onclick="Apps.deleteCommercialFlight('${f.id}')">[ CANCELAR ]</button>` : ''}
+             </div>
+          </div>
+          <div style="color:var(--green-mid); font-size:10px; margin-bottom:5px;">CÓDIGOS DE EMBARQUE (COPIE E ENVIE 1 POR AGENTE):</div>
+          ${ticketsHtml}
+        </div>
+      `;
+    }).join('');
+  }
+
+  function openBuyTicketModal() {
+    const profile = Auth.getProfile();
+    const currentPlanet = profile?.current_planet || 'capitolio';
+    const galaxy = window.GALAXY_DB || [];
+    const _planets = galaxy.filter(p => true);
+    let options = _planets.map(p => `<option value="${p.id}">${p.name.toUpperCase()}</option>`).join('');
+
+    const modalHTML = `
+      <div id="modal-buy-ticket" class="app-overlay hidden">
+        <div class="modal-box scan-effect" style="width:min(400px, 90vw);">
+          <div class="modal-header">> EMISSÃO DE PASSAGENS AÉREAS</div>
+          <div class="modal-body" style="display:flex; flex-direction:column; gap:15px;">
+            <div class="form-group">
+              <label>PONTO DE ORIGEM</label>
+              <input type="text" class="input-field" value="${currentPlanet.toUpperCase()}" readonly style="opacity:0.7">
+            </div>
+            <div class="form-group">
+              <label>DESTINO DESEJADO</label>
+              <select id="buy-ticket-dest" class="input-field">
+                 ${options}
+              </select>
+            </div>
+            <div class="form-group">
+              <label>QUANTIDADE DE PASSAGEIROS INCLUINDO VOCÊ (1 a 10)</label>
+              <input type="number" id="buy-ticket-qtd" class="input-field" value="1" min="1" max="10">
+            </div>
+            <div style="font-size:11px; color:var(--green-dark); text-align:justify;">
+              O LOBBY EXIGIRÁ QUE <span id="lbl-qtd" style="color:var(--amber)">1</span> AGENTES (COM ESTE MESMO CÓDIGO) ESTEJAM PRESENTES PARA INICIAR A VIAGEM.
+            </div>
+            <div style="margin-top:10px; padding:10px; background:rgba(0,0,0,0.5); border:1px solid var(--border-dim); display:flex; justify-content:space-between; align-items:center;">
+              <span style="color:var(--green-mid); font-size:12px;">CUSTO TOTAL (CR$ 1.000 / PASSAGEM):</span>
+              <span id="lbl-cost" style="color:var(--amber); font-size:18px; font-weight:bold;">CR$ 1.000</span>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn" onclick="document.getElementById('modal-buy-ticket').remove()">[ CANCELAR ]</button>
+            <button class="btn" onclick="Apps.buyCommercialTickets()" style="background:var(--green); color:var(--bg);">[ EMITIR PASSAGENS ]</button>
+          </div>
+        </div>
+      </div>
+    `;
+    const div = document.createElement('div');
+    div.innerHTML = modalHTML;
+    document.body.appendChild(div.firstElementChild);
+
+    // Update label dynamically
+    const qtdInput = document.getElementById('buy-ticket-qtd');
+    const lblQtd = document.getElementById('lbl-qtd');
+    const lblCost = document.getElementById('lbl-cost');
+    if (qtdInput && lblQtd && lblCost) {
+      qtdInput.addEventListener('input', (e) => {
+        const q = parseInt(e.target.value || '1', 10);
+        lblQtd.textContent = q;
+        lblCost.textContent = `CR$ ${(q * 1000).toLocaleString('pt-BR')}`;
+      });
+    }
+
+    document.getElementById('modal-buy-ticket').classList.remove('hidden');
+  }
+
+  async function buyCommercialTickets() {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    const dest = document.getElementById('buy-ticket-dest').value;
+    const qtd = parseInt(document.getElementById('buy-ticket-qtd').value || '1', 10);
+    const profile = Auth.getProfile();
+    const origin = profile?.current_planet || 'capitolio';
+
+    if (qtd < 1 || qtd > 10) return showModal({ title: 'ERRO', body: 'QUANTIDADE INVÁLIDA DE PASSAGENS.', type: 'alert' });
+
+    const totalCost = qtd * 1000;
+    const { data: userProfile } = await db.from('profiles').select('credits').eq('id', user.id).single();
+    if (!userProfile || userProfile.credits < totalCost) {
+      return showModal({ title: 'SALDO INSUFICIENTE', body: `VOCÊ PRECISA DE CR$ ${totalCost.toLocaleString('pt-BR')} PARA ESSA OPERAÇÃO.`, type: 'alert' });
+    }
+
+    // Generate COM-XXXX code
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let codeStr = 'COM-';
+    for (let i = 0; i < 4; i++) codeStr += chars.charAt(Math.floor(Math.random() * chars.length));
+
+    const { error } = await db.from('commercial_flights').insert({
+      ticket_code: codeStr,
+      buyer_id: user.id,
+      origin: origin,
+      destination: dest,
+      total_tickets: qtd,
+      ticket_price: 1000,
+      status: 'scheduled'
+    });
+
+    if (error) {
+      console.error(error);
+      return showNotification('ERRO AO EMITIR', 'FALHA NA EMISSÃO DA PASSAGEM.', 'error');
+    }
+
+    // Deduct credits
+    const newCredits = userProfile.credits - totalCost;
+    await db.from('profiles').update({ credits: newCredits }).eq('id', user.id);
+
+    // Update Header
+    const updatedProfile = await Auth.getProfile(true);
+    Desktop.updateHeader(updatedProfile);
+
+    document.getElementById('modal-buy-ticket').remove();
+    showNotification('PASSAGEM EMITIDA', `O CÓDIGO DA VIAGEM É: ${codeStr}`, 'success');
+    switchTravelTab('mine'); // switch back to the 'mine' tab to see it
+  }
+
+  async function deleteCommercialFlight(flightId) {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    const { data: flight } = await db.from('commercial_flights').select('total_tickets, ticket_price, buyer_id').eq('id', flightId).single();
+    if (!flight || flight.buyer_id !== user.id) {
+      return showNotification('ERRO', 'VOO NÃO ENCONTRADO.', 'error');
+    }
+
+    showModal({
+      title: 'CANCELAR VOO',
+      body: `TEM CERTEZA QUE DESEJA CANCELAR ESTE VOO? OS AGENTES COM OS CÓDIGOS NÃO PODERÃO EMBARCAR.<br><br><b>REEMBOLSO NO VALOR DE: CR$ ${(flight.total_tickets * (flight.ticket_price || 1000)).toLocaleString('pt-BR')}</b>`,
+      type: 'confirm',
+      onConfirm: async () => {
+        const { error } = await db.from('commercial_flights').delete().eq('id', flightId);
+        if (error) {
+          showNotification('ERRO', 'FALHA AO CANCELAR O VOO.', 'error');
+        } else {
+          // Refund credits
+          const refundAmount = flight.total_tickets * (flight.ticket_price || 1000);
+          const { data: profile } = await db.from('profiles').select('credits').eq('id', user.id).single();
+          if (profile) {
+            await db.from('profiles').update({ credits: profile.credits + refundAmount }).eq('id', user.id);
+            Desktop.updateHeader(await Auth.getProfile(true));
+          }
+
+          showNotification('VOO CANCELADO', `O VOO FOI REMOVIDO E CR$ ${refundAmount.toLocaleString('pt-BR')} FORAM REEMBOLSADOS.`, 'success');
+          loadMyCommercialTickets(); // Refresh the list
+        }
+      }
+    });
+  }
+
+  // ==========================================
+  // NEXUS BANK (App Bancário)
+  // ==========================================
+  function nexusBank() {
+    return `
+      <div id="bank-container" style="display:flex; flex-direction:column; height:100%; color:var(--green-mid); background:var(--bg-dark);">
+        <!-- TABS NAV -->
+        <div class="app-toolbar" style="border-bottom:1px solid var(--border-dim); padding-bottom:5px; margin-bottom:10px; display:flex; gap:10px; overflow-x:auto;">
+          <button class="btn m-tab active" data-tab="resumo" onclick="Apps.switchBankTab('resumo')">[ RESUMO ]</button>
+          <button class="btn m-tab" data-tab="transfer" onclick="Apps.switchBankTab('transfer')">[ TRANSFERÊNCIAS ]</button>
+          <button class="btn m-tab" data-tab="vaults" onclick="Apps.switchBankTab('vaults')">[ COFRES ]</button>
+          <button class="btn m-tab" data-tab="loans" onclick="Apps.switchBankTab('loans')">[ EMPRÉSTIMOS ]</button>
+        </div>
+
+        <!-- CONTENT AREA -->
+        <div id="bank-content" style="flex:1; overflow-y:auto; padding-right:5px;">
+           <div class="loading-state">INICIANDO CONEXÃO SEGURA...<span class="loading-dots"></span></div>
+        </div>
+      </div>
+    `;
+  }
+
+  function initNexusBank() {
+    switchBankTab('resumo');
+  }
+
+  function switchBankTab(tabName) {
+    document.querySelectorAll('#bank-container .m-tab').forEach(b => {
+      b.classList.toggle('active', b.getAttribute('data-tab') === tabName);
+    });
+
+    const content = $('bank-content');
+    if (!content) return;
+
+    if (tabName === 'resumo') {
+      content.innerHTML = `
+        <div style="padding:15px; border:1px solid var(--border-light); background:rgba(0,0,0,0.5);">
+           <h3 style="margin:0 0 10px 0; color:var(--green);">SALDO ATUAL</h3>
+           <div id="bank-balance-display" style="font-size:24px; font-family:var(--font-logo); color:var(--amber);">CR$ --</div>
+        </div>
+        <div style="margin-top:20px;">
+           <h4 style="margin-bottom:10px; color:var(--green-dim); font-size:12px;">ÚLTIMAS MOVIMENTAÇÕES</h4>
+           <div id="bank-statement-list" style="display:flex; flex-direction:column; gap:5px;">
+              <div style="font-size:11px; opacity:0.5;">Carregando extrato...</div>
+           </div>
+        </div>
+      `;
+      loadBankStatement();
+    } else if (tabName === 'transfer') {
+      content.innerHTML = `
+        <div style="padding:15px; border:1px solid var(--border-light); background:rgba(0,0,0,0.5);">
+           <h3 style="margin:0 0 15px 0; color:var(--green);">NOVA TRANSFERÊNCIA (P2P)</h3>
+           <label style="display:block; margin-bottom:5px; font-size:11px; color:var(--green-mid);">DESTINATÁRIO:</label>
+           <select id="bank-transfer-recipient" class="input-nexus" style="width:100%; margin-bottom:15px;">
+              <option value="">Aguarde... Carregando Agentes</option>
+           </select>
+
+           <label style="display:block; margin-bottom:5px; font-size:11px; color:var(--green-mid);">VALOR (CR$):</label>
+           <input type="number" id="bank-transfer-amount" class="input-nexus" placeholder="Ex: 500" min="1" style="width:100%; margin-bottom:20px;">
+           
+           <button class="btn" style="width:100%; padding:10px; font-size:14px; background:var(--green); color:#000;" onclick="Apps.executeBankTransfer(event)">[ CONFIRMAR TRANSFERÊNCIA ]</button>
+        </div>
+      `;
+      loadBankTransferRecipients();
+    } else if (tabName === 'vaults') {
+      content.innerHTML = `
+        <div style="padding:15px; border:1px solid var(--border-light); background:rgba(0,0,0,0.5); margin-bottom:15px;">
+           <h3 style="margin:0 0 10px 0; color:var(--green);">CRIAR NOVO COFRE</h3>
+           <div style="display:flex; gap:10px; margin-bottom:10px;">
+              <input type="text" id="bank-vault-name" class="input-nexus" placeholder="Nome (Ex: Nave Nova)" style="flex:2;">
+              <input type="number" id="bank-vault-goal" class="input-nexus" placeholder="Meta CR$ (Opcional)" min="0" style="flex:1;">
+           </div>
+           <button class="btn" style="width:100%; border-color:var(--green); color:var(--green);" onclick="Apps.createBankVault()">[ + ABRIR COFRE ]</button>
+        </div>
+        <div id="bank-vault-list" style="display:flex; flex-direction:column; gap:10px;">
+           <div class="loading-state">LENDO REDE DE COFRES...</div>
+        </div>
+      `;
+      loadBankVaults();
+    } else if (tabName === 'loans') {
+      content.innerHTML = `
+        <div style="padding:15px; border:1px solid var(--border-light); background:rgba(0,0,0,0.5); margin-bottom:15px;">
+           <h3 style="margin:0 0 10px 0; color:var(--red-alert);">EMPRÉSTIMOS (AGIOTA)</h3>
+           <p style="font-size:11px; color:var(--text-dim); margin-bottom:15px;">
+              Atenção: Todo empréstimo possui uma taxa fixa de 30% de juros sobre o valor solicitado. 
+              Ao possuir uma dívida ativa, **20% de todas as suas recompensas de missões** serão retidas automaticamente para abater o saldo devedor.
+           </p>
+           <div style="display:flex; gap:10px; margin-bottom:10px;">
+              <input type="number" id="bank-loan-amount" class="input-nexus" placeholder="Valor Desejado (CR$)" min="1" style="flex:1;">
+           </div>
+           <button class="btn" style="width:100%; border-color:var(--red-alert); color:var(--red-alert);" onclick="Apps.requestBankLoan()">[ SOLICITAR EMPRÉSTIMO ]</button>
+        </div>
+        <div id="bank-loan-list" style="display:flex; flex-direction:column; gap:10px;">
+           <div class="loading-state">VERIFICANDO DÍVIDAS ATIVAS...</div>
+        </div>
+      `;
+      loadBankLoans();
+    }
+  }
+
+  async function loadBankStatement() {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    // Load Balance
+    const { data: profile } = await db.from('profiles').select('credits').eq('id', user.id).single();
+    if (profile && $('bank-balance-display')) {
+      $('bank-balance-display').textContent = `CR$ ${profile.credits.toLocaleString('pt-BR')}`;
+    }
+
+    // Load Transactions
+    const list = $('bank-statement-list');
+    if (!list) return;
+
+    const { data: txs, error } = await db.from('bank_transactions')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(30);
+
+    if (error) {
+      list.innerHTML = `<div style="color:var(--red-alert); font-size:11px;">ERRO AO BUSCAR EXTRATO</div>`;
+      return;
+    }
+
+    if (!txs || txs.length === 0) {
+      list.innerHTML = `<div style="font-size:11px; opacity:0.5;">NENHUMA MOVIMENTAÇÃO RECENTE.</div>`;
+      return;
+    }
+
+    list.innerHTML = txs.map(tx => {
+      // Determine color and sign based on transaction type
+      const isPositive = ['transfer_in', 'loan_received', 'vault_withdraw'].includes(tx.type);
+      const color = isPositive ? 'var(--green)' : 'var(--red-alert)';
+      const sign = isPositive ? '+' : '-';
+      const date = new Date(tx.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+
+      // Build text desc
+      let descStr = tx.description || tx.type.toUpperCase();
+
+      return `
+        <div style="background:var(--bg-lighter); padding:8px 10px; border-left:3px solid ${color}; display:flex; justify-content:space-between; align-items:center;">
+          <div style="display:flex; flex-direction:column; gap:4px;">
+             <span style="font-size:12px; color:var(--text-bright);">${descStr}</span>
+             <span style="font-size:10px; color:var(--text-dim);">${date}</span>
+          </div>
+          <div style="font-size:14px; font-weight:bold; color:${color};">
+            ${sign} CR$ ${tx.amount.toLocaleString('pt-BR')}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function loadBankTransferRecipients() {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    const select = $('bank-transfer-recipient');
+    if (!db || !user || !select) return;
+
+    const { data: profiles } = await db.from('profiles').select('id, display_name, username').neq('id', user.id).order('display_name', { ascending: true });
+
+    if (profiles && profiles.length > 0) {
+      select.innerHTML = '<option value="">-- SELECIONE O AGENTE --</option>' + profiles.map(p =>
+        `<option value="${p.id}">${p.display_name || p.username || 'AGENTE DESCONHECIDO'}</option>`
+      ).join('');
+    } else {
+      select.innerHTML = '<option value="">NENHUM AGENTE ENCONTRADO</option>';
+    }
+  }
+
+  async function executeBankTransfer(e) {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    const recipientId = $('bank-transfer-recipient')?.value;
+    const amountVal = $('bank-transfer-amount')?.value;
+    const amount = parseInt(amountVal, 10);
+
+    if (!recipientId) return showNotification('ERRO', 'SELECIONE UM DESTINATÁRIO.', 'error');
+    if (!amount || isNaN(amount) || amount <= 0) return showNotification('ERRO', 'INSIRA UM VALOR VÁLIDO.', 'error');
+
+    // Fetch current user
+    const { data: sender } = await db.from('profiles').select('credits, display_name, username').eq('id', user.id).single();
+    if (!sender) return showNotification('ERRO', 'FALHA AO LER SEU PERFIL.', 'error');
+
+    if (sender.credits < amount) {
+      return showNotification('SALDO INSUFICIENTE', 'VOCÊ NÃO POSSUI CR$ SUFICIENTES PARA ESTA LIGAÇÃO.', 'error');
+    }
+
+    // Process Transfer
+    const ev = e || window.event;
+    const btn = ev ? ev.target : document.activeElement;
+
+    let oldText = '[ CONFIRMAR TRANSFERÊNCIA ]';
+    if (btn && btn.tagName === 'BUTTON') {
+      oldText = btn.textContent;
+      btn.textContent = '[ PROCESSANDO... ]';
+      btn.disabled = true;
+    }
+
+    try {
+      // 1. Fetch recipient
+      const { data: recipient } = await db.from('profiles').select('credits').eq('id', recipientId).single();
+      if (!recipient) throw new Error('Destinatário não encontrado.');
+
+      // 2. Deduct from sender
+      await db.from('profiles').update({ credits: sender.credits - amount }).eq('id', user.id);
+
+      // 3. Add to recipient
+      await db.from('profiles').update({ credits: recipient.credits + amount }).eq('id', recipientId);
+
+      // 4. Create Sender Transaction
+      await db.from('bank_transactions').insert({
+        user_id: user.id,
+        type: 'transfer_out',
+        amount: amount,
+        description: 'TRANSFERÊNCIA ENVIADA',
+        related_user_id: recipientId
+      });
+
+      // 5. Create Recipient Transaction
+      await db.from('bank_transactions').insert({
+        user_id: recipientId,
+        type: 'transfer_in',
+        amount: amount,
+        description: `TRANSFERÊNCIA RECEBIDA de: ${sender.display_name || sender.username || 'AGENTE'}`,
+        related_user_id: user.id
+      });
+
+      showNotification('TRANSFERÊNCIA CONCLUÍDA', `CR$ ${amount.toLocaleString('pt-BR')} ENVIADOS COM SUCESSO.`, 'success');
+      $('bank-transfer-amount').value = '';
+
+      // Refresh Header & Switch back to summary
+      Desktop.updateHeader(await Auth.getProfile(true));
+      switchBankTab('resumo');
+
+    } catch (err) {
+      console.error(err);
+      showNotification('ERRO', 'FALHA NA TRANSAÇÃO: ' + err.message, 'error');
+    } finally {
+      if (btn && btn.tagName === 'BUTTON') {
+        btn.textContent = oldText;
+        btn.disabled = false;
+      }
+    }
+  }
+
+  async function loadBankVaults() {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    const list = $('bank-vault-list');
+    if (!db || !user || !list) return;
+
+    const { data: vaults, error } = await db.from('bank_vaults').select('*').eq('user_id', user.id).order('created_at', { ascending: true });
+
+    if (error) {
+      list.innerHTML = `<div style="color:var(--red-alert); font-size:11px;">ERRO AO BUSCAR COFRES</div>`;
+      return;
+    }
+
+    if (!vaults || vaults.length === 0) {
+      list.innerHTML = `<div style="font-size:11px; opacity:0.5; padding:10px; border:1px dashed var(--border-dim); text-align:center;">NENHUM COFRE ATIVO.</div>`;
+      return;
+    }
+
+    list.innerHTML = vaults.map(v => {
+      const hasGoal = v.goal_amount > 0;
+      const pct = hasGoal ? Math.min(100, (v.balance / v.goal_amount) * 100).toFixed(1) : 0;
+
+      let progressHtml = '';
+      if (hasGoal) {
+        progressHtml = `
+           <div style="width:100%; height:8px; background:var(--bg-darker); margin:10px 0; border:1px solid var(--border-dim);">
+             <div style="height:100%; width:${pct}%; background:var(--amber); transition:width 0.3s;"></div>
+           </div>
+           <div style="font-size:10px; color:var(--text-dim); display:flex; justify-content:space-between;">
+              <span>PROGRESSO: ${pct}%</span>
+              <span>META: CR$ ${v.goal_amount.toLocaleString('pt-BR')}</span>
+           </div>
+         `;
+      }
+
+      return `
+         <div style="padding:15px; background:var(--bg-lighter); border-left:3px solid var(--amber); margin-bottom:10px;">
+           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+              <h4 style="margin:0; color:var(--text-bright); font-size:14px; text-transform:uppercase;">${v.name}</h4>
+              <div style="display:flex; align-items:center; gap:10px;">
+                 <span style="color:var(--amber); font-weight:bold; font-size:16px;">CR$ ${v.balance.toLocaleString('pt-BR')}</span>
+                 <button class="btn" style="padding:2px 6px; font-size:12px; color:var(--red-alert); border-color:var(--red-alert); opacity:0.7;" title="Excluir Cofre" onclick="Apps.deleteBankVault('${v.id}')">🗑️</button>
+              </div>
+           </div>
+           ${progressHtml}
+           <div style="display:flex; gap:10px; margin-top:15px;">
+              <button class="btn" style="flex:1; padding:6px; font-size:11px; background:var(--bg-darker); border-color:var(--green);" onclick="Apps.handleVaultTransaction('${v.id}', 'deposit')">[ DEPOSITAR ]</button>
+              <button class="btn" style="flex:1; padding:6px; font-size:11px; background:var(--bg-darker); border-color:var(--red-alert);" onclick="Apps.handleVaultTransaction('${v.id}', 'withdraw')">[ RESGATAR ]</button>
+           </div>
+         </div>
+       `;
+    }).join('');
+  }
+
+  async function createBankVault() {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    const name = $('bank-vault-name')?.value?.trim();
+    const goalVal = $('bank-vault-goal')?.value;
+    const goal = parseInt(goalVal, 10) || 0;
+
+    if (!name) return showNotification('ERRO', 'DÊ UM NOME AO COFRE.', 'error');
+
+    try {
+      const { error } = await db.from('bank_vaults').insert({
+        user_id: user.id,
+        name: name,
+        goal_amount: goal,
+        balance: 0
+      });
+
+      if (error) throw error;
+
+      showNotification('COFRE CRIADO', `O COFRE "${name.toUpperCase()}" FOI ESTABELECIDO.`, 'success');
+      $('bank-vault-name').value = '';
+      if ($('bank-vault-goal')) $('bank-vault-goal').value = '';
+      loadBankVaults();
+    } catch (e) {
+      console.error(e);
+      showNotification('ERRO', 'FALHA AO CRIAR COFRE.', 'error');
+    }
+  }
+
+  function handleVaultTransaction(vaultId, actionType) {
+    const typeLabel = actionType === 'deposit' ? 'DEPOSITAR' : 'RESGATAR';
+    showModal({
+      title: `${typeLabel} CR$`,
+      body: `
+        <div style="margin-bottom:15px;">INFORME O VALOR (CR$) PARA TRANSFERIR:</div>
+        <input type="number" id="vault-tx-amount" class="input-nexus" placeholder="Ex: 100" min="1" style="width:100%;">
+      `,
+      type: 'confirm',
+      onConfirm: async () => {
+        const amount = parseInt($('vault-tx-amount')?.value, 10);
+        if (!amount || isNaN(amount) || amount <= 0) return showNotification('ERRO', 'VALOR INVÁLIDO.', 'error');
+
+        const db = Auth.db();
+        const user = Auth.getUser();
+
+        const pUser = db.from('profiles').select('credits').eq('id', user.id).single();
+        const pVault = db.from('bank_vaults').select('balance, name').eq('id', vaultId).single();
+
+        const [resUser, resVault] = await Promise.all([pUser, pVault]);
+        if (!resUser.data || !resVault.data) return showNotification('ERRO', 'FALHA AO LER DADOS.', 'error');
+
+        const profile = resUser.data;
+        const vault = resVault.data;
+
+        let newProfileCredits = profile.credits;
+        let newVaultBalance = vault.balance;
+
+        if (actionType === 'deposit') {
+          if (profile.credits < amount) return showNotification('ERRO', 'VOCÊ NÃO TEM CR$ SUFICIENTES NA CARTEIRA.', 'error');
+          newProfileCredits -= amount;
+          newVaultBalance += amount;
+        } else {
+          if (vault.balance < amount) return showNotification('ERRO', 'O COFRE NÃO TEM ESSE VALOR PARA RESGATE.', 'error');
+          newProfileCredits += amount;
+          newVaultBalance -= amount;
+        }
+
+        try {
+          await db.from('profiles').update({ credits: newProfileCredits }).eq('id', user.id);
+          await db.from('bank_vaults').update({ balance: newVaultBalance }).eq('id', vaultId);
+
+          await db.from('bank_transactions').insert({
+            user_id: user.id,
+            type: actionType === 'deposit' ? 'vault_deposit' : 'vault_withdraw',
+            amount: amount,
+            description: actionType === 'deposit' ? `DEPÓSITO NO COFRE: ${vault.name}` : `RESGATE DO COFRE: ${vault.name}`
+          });
+
+          showNotification('SUCESSO', `TRANSAÇÃO DO COFRE CONCLUÍDA.`, 'success');
+          Desktop.updateHeader(await Auth.getProfile(true));
+          loadBankVaults();
+        } catch (e) {
+          console.error(e);
+          showNotification('ERRO', 'FALHA NA TRANSAÇÃO.', 'error');
+        }
+      }
+    });
+  }
+
+  function deleteBankVault(vaultId) {
+    showModal({
+      title: 'EXCLUIR COFRE',
+      body: 'TEM CERTEZA QUE DESEJA EXCLUIR ESTE COFRE?<br><br>SE HOUVER SALDO, ELE SERÁ DEVOLVIDO À SUA CONTA PRINCIPAL (CR$). ESSA AÇÃO NÃO PODE SER DESFEITA.',
+      type: 'confirm',
+      onConfirm: async () => {
+        const db = Auth.db();
+        const user = Auth.getUser();
+        if (!db || !user) return;
+
+        const pUser = db.from('profiles').select('credits').eq('id', user.id).single();
+        const pVault = db.from('bank_vaults').select('balance, name').eq('id', vaultId).single();
+
+        const [resUser, resVault] = await Promise.all([pUser, pVault]);
+        if (!resUser.data || !resVault.data) return showNotification('ERRO', 'FALHA AO LER DADOS DO COFRE.', 'error');
+
+        const profile = resUser.data;
+        const vault = resVault.data;
+
+        try {
+          // Se houver dinheiro, devolve pra conta e gera extrato
+          if (vault.balance > 0) {
+            const newProfileCredits = profile.credits + vault.balance;
+            await db.from('profiles').update({ credits: newProfileCredits }).eq('id', user.id);
+
+            await db.from('bank_transactions').insert({
+              user_id: user.id,
+              type: 'vault_withdraw',
+              amount: vault.balance,
+              description: `RESGATE (ENCERRAMENTO DE COFRE): ${vault.name}`
+            });
+          }
+
+          // Deleta o cofre
+          const { error } = await db.from('bank_vaults').delete().eq('id', vaultId);
+          if (error) throw error;
+
+          showNotification('SUCESSO', `COFRE EXCLUÍDO COM SUCESSO.`, 'success');
+          Desktop.updateHeader(await Auth.getProfile(true));
+          loadBankVaults();
+        } catch (e) {
+          console.error(e);
+          showNotification('ERRO', 'FALHA AO DELETAR COFRE.', 'error');
+        }
+      }
+    });
+  }
+
+  async function loadBankLoans() {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    const list = $('bank-loan-list');
+    if (!db || !user || !list) return;
+
+    const { data: loans, error } = await db.from('bank_loans')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      list.innerHTML = `<div style="color:var(--red-alert); font-size:11px;">ERRO AO BUSCAR EMPRÉSTIMOS.</div>`;
+      return;
+    }
+
+    if (!loans || loans.length === 0) {
+      list.innerHTML = `<div style="font-size:11px; opacity:0.5; padding:10px; border:1px dashed var(--border-dim); text-align:center;">NENHUMA DÍVIDA ATIVA. SUA ALMA ESTÁ LIMPA.</div>`;
+      return;
+    }
+
+    list.innerHTML = loans.map(loan => {
+      const pctPaid = Math.min(100, ((loan.total_debt - loan.remaining_amount) / loan.total_debt) * 100).toFixed(1);
+
+      return `
+         <div style="padding:15px; background:var(--bg-lighter); border-left:3px solid var(--red-alert); margin-bottom:10px;">
+           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+              <div style="display:flex; flex-direction:column;">
+                  <h4 style="margin:0; color:var(--text-bright); font-size:14px; text-transform:uppercase;">DÍVIDA ATIVA</h4>
+                  <span style="font-size:10px; color:var(--text-dim);">PEGOU: CR$ ${loan.borrowed_amount.toLocaleString('pt-BR')} (JUROS INCLUSOS)</span>
+              </div>
+              <span style="color:var(--red-alert); font-weight:bold; font-size:16px;">CR$ ${loan.remaining_amount.toLocaleString('pt-BR')} FALTA</span>
+           </div>
+           
+           <div style="width:100%; height:8px; background:var(--bg-darker); margin:10px 0; border:1px solid var(--border-dim);">
+             <div style="height:100%; width:${pctPaid}%; background:var(--red-alert); transition:width 0.3s;"></div>
+           </div>
+           <div style="font-size:10px; color:var(--text-dim); display:flex; justify-content:space-between;">
+              <span>PAGO: ${pctPaid}%</span>
+              <span>DÍVIDA TOTAL: CR$ ${loan.total_debt.toLocaleString('pt-BR')}</span>
+           </div>
+
+           <div style="display:flex; gap:10px; margin-top:15px;">
+              <button class="btn" style="flex:1; padding:6px; font-size:11px; background:var(--bg-darker); border-color:var(--green);" onclick="Apps.payBankLoan('${loan.id}')">[ QUITAR / ABATER DÍVIDA ]</button>
+           </div>
+         </div>
+       `;
+    }).join('');
+  }
+
+  async function requestBankLoan() {
+    const db = Auth.db();
+    const user = Auth.getUser();
+    if (!db || !user) return;
+
+    const amountVal = $('bank-loan-amount')?.value;
+    const amount = parseInt(amountVal, 10);
+
+    if (!amount || isNaN(amount) || amount <= 0) return showNotification('ERRO', 'INSIRA UM VALOR VÁLIDO.', 'error');
+
+    // Juros fixo de 30% (O Agiota)
+    const fixedInterestRate = 0.30;
+    const totalDebt = Math.ceil(amount + (amount * fixedInterestRate));
+
+    showModal({
+      title: 'SOLICITAR EMPRÉSTIMO (AGIOTA)',
+      body: `
+        <div style="margin-bottom:15px; font-size:12px; line-height:1.5;">
+          VOCÊ ESTÁ SOLICITANDO: <strong style="color:var(--green);">CR$ ${amount.toLocaleString('pt-BR')}</strong><br>
+          SUA DÍVIDA TOTAL COM 30% DE JUROS SERÁ: <strong style="color:var(--red-alert);">CR$ ${totalDebt.toLocaleString('pt-BR')}</strong><br><br>
+          <span style="color:var(--text-dim);">TERMOS: 20% do valor recebido em qualquer missão concluída será sugado automaticamente para pagar esta dívida até a quitação total. Você também pode pagar o valor antecipado no painel.</span>
+        </div>
+        <div style="font-weight:bold; color:var(--amber);">DESEJA REALMENTE ASSINAR O CONTRATO?</div>
+      `,
+      type: 'confirm',
+      onConfirm: async () => {
+        try {
+          const { data: profile } = await db.from('profiles').select('credits').eq('id', user.id).single();
+          if (!profile) throw new Error('Cidadão não encontrado no sistema principal.');
+
+          // Cria o empréstimo
+          const { error: loanError } = await db.from('bank_loans').insert({
+            user_id: user.id,
+            borrowed_amount: amount,
+            total_debt: totalDebt,
+            remaining_amount: totalDebt,
+            status: 'active'
+          });
+          if (loanError) throw loanError;
+
+          // Transfere o dinheiro base (sem os juros) pro bolso dele
+          await db.from('profiles').update({ credits: profile.credits + amount }).eq('id', user.id);
+
+          // Gera extrato no bank_transactions
+          await db.from('bank_transactions').insert({
+            user_id: user.id,
+            type: 'loan_received',
+            amount: amount,
+            description: `EMPRÉSTIMO APROVADO (AGIOTA DE DÍVIDA TOTAL: CR$ ${totalDebt.toLocaleString('pt-BR')})`
+          });
+
+          showNotification('CONTRATO ASSINADO', `O CR$ ${amount.toLocaleString('pt-BR')} FOI DEPOSITADO NA SUA CONTA.`, 'success');
+          $('bank-loan-amount').value = '';
+          Desktop.updateHeader(await Auth.getProfile(true));
+          loadBankLoans();
+        } catch (e) {
+          console.error(e);
+          showNotification('ERRO', 'O CREDOR RECUSOU SUA PROPOSTA.', 'error');
+        }
+      }
+    });
+  }
+
+  function payBankLoan(loanId) {
+    showModal({
+      title: 'PAGAR DÍVIDA',
+      body: `
+        <div style="margin-bottom:15px;">INFORME QUANTO VOCÊ DESEJA ABATER DA DÍVIDA COM SEUS CR$ ATUAIS:</div>
+        <input type="number" id="loan-pay-amount" class="input-nexus" placeholder="CR$ para pagar..." min="1" style="width:100%;">
+      `,
+      type: 'confirm',
+      onConfirm: async () => {
+        const amount = parseInt($('loan-pay-amount')?.value, 10);
+        if (!amount || isNaN(amount) || amount <= 0) return showNotification('ERRO', 'VALOR INVÁLIDO.', 'error');
+
+        const db = Auth.db();
+        const user = Auth.getUser();
+
+        const pUser = db.from('profiles').select('credits').eq('id', user.id).single();
+        const pLoan = db.from('bank_loans').select('remaining_amount').eq('id', loanId).single();
+
+        const [resUser, resLoan] = await Promise.all([pUser, pLoan]);
+        if (!resUser.data || !resLoan.data) return showNotification('ERRO', 'FALHA AO LER REGISTROS.', 'error');
+
+        const profile = resUser.data;
+        const loan = resLoan.data;
+
+        if (profile.credits < amount) return showNotification('ERRO', 'VOCÊ NÃO TEM ESSE VALOR PARA PAGAR.', 'error');
+
+        // Não deixa pagar mais do que a dívida
+        const actualAmountToPay = Math.min(amount, loan.remaining_amount);
+
+        try {
+          const newDebt = loan.remaining_amount - actualAmountToPay;
+          const newStatus = newDebt <= 0 ? 'paid' : 'active';
+
+          // Deduz do usuário
+          await db.from('profiles').update({ credits: profile.credits - actualAmountToPay }).eq('id', user.id);
+
+          // Atualiza Loan
+          await db.from('bank_loans').update({
+            remaining_amount: newDebt,
+            status: newStatus
+          }).eq('id', loanId);
+
+          // Gera transação de pagamento
+          await db.from('bank_transactions').insert({
+            user_id: user.id,
+            type: 'loan_payment',
+            amount: actualAmountToPay,
+            description: `PAGAMENTO PARCIAL DE EMPRÉSTIMO` + (newStatus === 'paid' ? ' (QUITADO)' : '')
+          });
+
+          if (newStatus === 'paid') {
+            showNotification('DÍVIDA QUITADA!', 'VOCÊ NÃO DEVE MAIS NADA.', 'success');
+          } else {
+            showNotification('PAGAMENTO ACEITO', `CR$ ${actualAmountToPay.toLocaleString('pt-BR')} ABATIDOS DA SUA DÍVIDA.`, 'success');
+          }
+
+          Desktop.updateHeader(await Auth.getProfile(true));
+          loadBankLoans();
+        } catch (e) {
+          console.error(e);
+          showNotification('ERRO', 'FALHA AO PROCESSAR PAGAMENTO.', 'error');
+        }
+      }
+    });
+  }
+
   return {
     render, init,
     openLightbox, editArtwork, deleteArtwork, openEmail, deleteEmail,
@@ -6653,15 +7933,20 @@ const Apps = (() => {
     batchTransfer,
     prepShipTravel, joinTravelLobby, loadShipData, openRefuelMenu, handleRefuel, setCustomVoyageDestination,
     switchShipTab, loadLocalShips, viewLocalShip, boardShip, unboardShip,
+    switchTravelTab, loadCommercialBoard, loadMyCommercialTickets, openBuyTicketModal, buyCommercialTickets, deleteCommercialFlight,
     saveCombatBio, saveCombatVitals, saveCombatMental, saveCombatAttrs, modVital, modSanity, giveLoot,
     deleteVaultItem, openPadlock, closePadlock, submitPadlock, _padlockType, _padlockBackspace,
     openAgentTransferMenu, transferItemToAgent,
     openNewDM, openNewGroup, createDM, switchRoom, clearGeneralChat, toggleChatSidebar,
     clearChat, deleteRoom, _selectGroupIcon,
     switchAdminTab, loadAdminItems, loadCombatAgents, deleteAdminTravel, resumeAdminTravel,
+    deleteAdminMission, loadAdminMissions,
     copyToClipboard, renderAgentLocationCard,
     hangarApp, initHangarApp, buyHangarSlot, activateHangarShip,
-    deactivateHangarShip, sellHangarShip
+    deactivateHangarShip, sellHangarShip,
+    nexusBank, initNexusBank, switchBankTab, executeBankTransfer, loadBankTransferRecipients,
+    loadBankVaults, createBankVault, handleVaultTransaction, deleteBankVault,
+    loadBankLoans, requestBankLoan, payBankLoan
   };
 
 })();
