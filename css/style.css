@@ -29,9 +29,9 @@
   --transition: 0.15s ease;
 
   /* Z-Index Scale */
-  --z-scanlines: 10000;
-  --z-vignette: 9999;
-  --z-notification: 9500;
+  --z-scanlines: 30000000;
+  --z-vignette: 29999999;
+  --z-notification: 40000000;
   --z-lightbox: 9000;
   --z-modal-top: 8500;
   --z-modal: 8000;

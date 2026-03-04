@@ -1436,60 +1436,20 @@
     position: fixed;
     top: 20px;
     right: 20px;
-    z-index: var(--z-notification);
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    pointer-events: none;
-}
-
-.notification-toast {
-    background: var(--bg);
-    border: 1px solid var(--green);
-    box-shadow: 0 0 20px var(--green-glow);
-    padding: 16px;
-    width: 300px;
-    animation: slideInRight 0.3s ease-out;
-    pointer-events: auto;
-    cursor: pointer;
-}
-
-.notification-toast.new-email {
-    border-color: var(--amber);
-}
-
-.notification-header {
-    font-family: var(--font-logo);
-    font-size: 12px;
-    color: var(--amber);
-    margin-bottom: 8px;
-    letter-spacing: 2px;
-}
-
-.notification-body {
-    font-family: var(--font-code);
-    font-size: 15px;
-    line-height: 1.5;
-    color: var(--green-mid);
-}
-
-.notification-container {
-    position: fixed;
-    top: 20px;
-    right: 20px;
     width: 350px;
     display: flex;
     flex-direction: column;
     gap: 12px;
-    z-index: var(--z-notification);
+    z-index: 999999999 !important;
+    /* Prioridade máxima absoluta sobre tudo */
     pointer-events: none;
 }
 
 .notification-toast {
-    background: rgba(0, 15, 0, 0.95);
+    background: rgba(0, 15, 0, 0.98);
     border: 1px solid var(--green);
     box-shadow: 0 0 20px var(--green-glow);
-    padding: 16px;
+    padding: 12px;
     font-family: var(--font-code);
     color: var(--green);
     cursor: pointer;
@@ -1497,6 +1457,20 @@
     position: relative;
     overflow: hidden;
     margin-bottom: 8px;
+    animation: slideInRight 0.3s ease-out;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.notification-icon {
+    width: 60px;
+    height: 80px;
+    flex-shrink: 0;
+}
+
+.notification-content {
+    flex: 1;
 }
 
 .notification-toast::after {
@@ -1518,6 +1492,16 @@
     padding-bottom: 4px;
     letter-spacing: 2px;
     text-transform: uppercase;
+}
+
+.notification-body {
+    font-size: 14px;
+    line-height: 1.4;
+    color: var(--green-mid);
+}
+
+.notification-toast.new-email {
+    border-color: var(--amber);
 }
 
 @keyframes slideInRight {
@@ -2698,7 +2682,8 @@
     width: 100vw;
     height: 100vh;
     background: rgba(0, 20, 0, 0.8);
-    z-index: 10000000;
+    z-index: 1000000;
+    /* Reduzido para ficar abaixo das notificações (20M) */
     display: none;
     justify-content: center;
     align-items: center;

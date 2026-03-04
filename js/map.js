@@ -52,6 +52,7 @@ const GALAXY_DB = [
   { id: 'axion', name: 'Axion', region: 'Colônias Internas', rk: 'internas', type: 'standard', pos: { r: 135, a: 245 }, desc: 'Uma colônia normal e bem estabelecida, servindo como um centro administrativo para um aglomerado de mundos de produção.', cities: 'Marco Zero, Vigília do Governador', population: '18 Bilhões', status: 'ESTÁVEL' },
   { id: 'caliba', name: 'Calibã', region: 'Colônias Internas', rk: 'internas', type: 'hunting', pos: { r: 135, a: 165 }, desc: 'Uma colônia que vive da exportação de peles e amostras de sua megafauna perigosa.', cities: 'Fortaleza dos Caçadores, Aldeia da Presa', population: '300 Milhões', status: 'PERIGOSO' },
   { id: 'drundaia', name: 'Drundaia', region: 'Colônias Internas', rk: 'internas', type: 'hive', pos: { r: 135, a: 120 }, desc: 'Um planeta independente de fachada opulenta, que atrai todas as raças da galáxia. Sociedade dividida em cidades-colmeia verticais.', cities: 'Aurória, Aerthos', population: '160 Bilhões', status: 'SOCIAL_TENSÃO' },
+  { id: 'solaris', name: 'Solaris', region: 'Colônias Internas', rk: 'internas', type: 'standard', pos: { r: 130, a: 220 }, desc: 'Dividido em duas partes, é local de beleza e contradições, com cultura local de todos os deuses e derivações. Grande desigualdade social.\\nParte Sul: Embaixadores e bilionários. Cidades bem planejadas.\\nParte Norte: Maioria da população, vulgar e não planejada.', cities: 'Larins, Congressa, San Groud', population: '5 Bilhões', status: 'HOSTILIDADE (50/100)' },
 
   // SEÇÃO 4: COLÔNIAS EXPANSIONISTAS (R ~ 185)
   { id: 'bastilha', name: 'Bastilha', region: 'Colônias Expansionistas', rk: 'expansionistas', type: 'fortress', pos: { r: 185, a: 40 }, desc: 'O principal ponto de comando da rede de defesa da fronteira. Um mundo-fortaleza com a maior das armas planetárias.', cities: 'Base Vanguarda, O Canhão Estelar', population: '1.2 Bilhões', status: 'MILITAR' },
@@ -309,6 +310,7 @@ function map() {
             <!-- Dynamic Elements Container -->
             <g id="map-mission-routes" pointer-events="none"></g>
             <g id="map-elements"></g>
+            <g id="map-online-agents"></g>
 
             <!-- Selection Ring (Track Feedback) -->
             <g id="selection-ring" pointer-events="none" style="display:none;">
@@ -421,9 +423,26 @@ async function initMap() {
       } else {
         setMissionRoute(null, null);
       }
+
+      // Subscribe to presence updates for realtime map markers
+      if (window.startPresenceHeartbeat) {
+        window.startPresenceHeartbeat(); // Force user as online when opening the map
+      }
+
+      db.channel('map_presence_updates')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'presence' }, () => {
+          renderOnlineAgents(window.scale || 1);
+        })
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, (payload) => {
+          // Verify if current_planet changed for any online user
+          if (payload.new.current_planet !== payload.old.current_planet) {
+            renderOnlineAgents(window.scale || 1);
+          }
+        })
+        .subscribe();
     }
   } catch (e) {
-    console.error("[MAP] ERROR AUTO-DETECTING MISSION:", e);
+    console.error("[MAP] ERROR AUTO-DETECTING MISSION OR SUBS:", e);
   }
 
   // Generate Stardust
@@ -578,6 +597,140 @@ function updateTracking() {
   translateY = centerY - py * scale;
 }
 
+// ── Realtime Localização ───────────────────────────────────────
+async function renderOnlineAgents(scale) {
+  const layer = document.getElementById('map-online-agents');
+  if (!layer) {
+    console.warn("[MAP/DEBUG] renderOnlineAgents abortado: layer 'map-online-agents' não encontrada.");
+    return;
+  }
+
+  const db = Auth.db();
+  if (!db) {
+    console.warn("[MAP/DEBUG] renderOnlineAgents abortado: banco de dados Ausente.");
+    return;
+  }
+
+  // Pegar usuários online (últimos 2 minutos)
+  const twoMinAgo = new Date(Date.now() - 120000).toISOString();
+  let { data: presenceData } = await db.from('presence')
+    .select('user_id, display_name')
+    .gt('last_seen', twoMinAgo);
+
+  console.log(`[MAP/DEBUG] renderOnlineAgents encontrou ${presenceData ? presenceData.length : 0} usuários online.`, presenceData);
+
+  if (!presenceData || presenceData.length === 0) {
+    layer.innerHTML = '';
+    return;
+  }
+
+  // Pegar current_planet desses usuários
+  const userIds = presenceData.map(p => p.user_id);
+  let profilesData = [];
+  try {
+    const { data, error } = await db.from('profiles')
+      .select('id, current_planet, role')
+      .in('id', userIds);
+    if (!error && data) profilesData = data;
+    console.log(`[MAP/DEBUG] renderOnlineAgents buscou profiles:`, profilesData);
+  } catch (e) { console.error("[MAP] Erro ao buscar perfis na presenca", e); }
+
+  const expansion = Math.pow(scale, EXPANSION_POWER - 1);
+  layer.innerHTML = '';
+
+  presenceData.forEach(async user => { // async to maybe get Auth inside? actually we can get the Auth outside.
+    // Wait, let's just get Auth user ID outside the loop.
+    const currentUser = Auth.getUser();
+    if (currentUser && currentUser.id === user.user_id) return; // Ignore self
+
+    const profile = profilesData.find(p => p.id === user.user_id);
+    let pName = profile?.current_planet || 'capitolio'; // default fallback for new users
+
+    let planetList = window.GALAXY_DB || [];
+    let planet = planetList.find(p =>
+      p.id.toLowerCase() === pName.toLowerCase() ||
+      p.name.toLowerCase() === pName.toLowerCase()
+    );
+
+    if (!planet) {
+      console.warn(`[MAP] Planeta de destino não encontrado para ${user.display_name}: ${pName}. Jogando para capitolio.`);
+      planet = planetList.find(p => p.id === 'capitolio');
+    }
+
+    if (planet) {
+      const currentR = planet.pos.r * expansion;
+      const rad = (planet.pos.a * Math.PI) / 180;
+
+      const pX = 300 + currentR * Math.cos(rad);
+      const pY = 300 + currentR * Math.sin(rad);
+
+      // Criar o marcador SVG
+      const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      group.setAttribute('class', 'online-agent-marker');
+      group.setAttribute('data-uid', user.user_id);
+      group.setAttribute('data-planet', pName);
+      group.style.cursor = 'pointer';
+
+      // Configuração de Cores
+      const hash = user.user_id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      const agentColors = ['#00e850', '#00aaff', '#ff00aa', '#ffb000', '#ffff00', '#cc66ff', '#00ffff', '#ff3333'];
+      const agentColor = agentColors[hash % agentColors.length];
+
+      // Wrapper do Ícone (onde o scale local vai atuar para não estourar no zoom)
+      const iconWrap = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      iconWrap.setAttribute('class', 'agent-icon-wrap');
+      const baseIconScale = Math.max(0.6, 1 / Math.sqrt(scale));
+      iconWrap.setAttribute('transform', `translate(${pX}, ${pY}) scale(${baseIconScale})`);
+
+      // Seta indicativa (Arrow)
+      const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      arrow.setAttribute('d', 'M0, -12 L6, -2 L0, -5 L-6, -2 Z');
+      arrow.setAttribute('fill', agentColor);
+      arrow.setAttribute('style', `filter:drop-shadow(0 0 3px ${agentColor});`);
+      arrow.innerHTML = `<animateTransform attributeName="transform" type="translate" values="0,-3; 0,2; 0,-3" dur="2s" repeatCount="indefinite" />`;
+
+      // Anel rotativo (Ring)
+      const ring = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      ring.setAttribute('cx', 0);
+      ring.setAttribute('cy', 0);
+      ring.setAttribute('r', 10);
+      ring.setAttribute('fill', 'none');
+      ring.setAttribute('stroke', agentColor);
+      ring.setAttribute('stroke-width', 1);
+      ring.setAttribute('stroke-dasharray', '3,3');
+      ring.setAttribute('opacity', 0.8);
+      ring.innerHTML = `<animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="4s" repeatCount="indefinite" />`;
+
+      iconWrap.appendChild(arrow);
+      iconWrap.appendChild(ring);
+
+      // Label do nome (Tooltip on hover)
+      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      const labelScale = Math.max(0.3, 0.8 / Math.sqrt(scale));
+      label.textContent = user.display_name.toUpperCase();
+      label.setAttribute('x', pX);
+      label.setAttribute('y', pY - (16 * baseIconScale + 4 / scale));
+      label.setAttribute('text-anchor', 'middle');
+      label.setAttribute('fill', agentColor);
+      label.setAttribute('class', 'agent-label');
+      label.style.fontSize = `${labelScale * 14}px`;
+      label.style.fontFamily = 'var(--font-code, monospace)';
+      label.style.letterSpacing = '1px';
+      label.style.pointerEvents = 'none';
+      label.style.opacity = '0';
+      label.style.transition = 'opacity 0.2s';
+      label.style.textShadow = `0 0 2px black, 0 0 4px ${agentColor}`;
+
+      group.addEventListener('mouseenter', () => label.style.opacity = '1');
+      group.addEventListener('mouseleave', () => label.style.opacity = '0');
+
+      group.appendChild(iconWrap);
+      group.appendChild(label);
+      layer.appendChild(group);
+    }
+  });
+}
+
 function renderGalaxy() {
   const layer = document.getElementById('map-elements');
   if (!layer) return;
@@ -619,6 +772,7 @@ function renderGalaxy() {
 
   // Initial position update
   updateGalaxyPositions(1);
+  renderOnlineAgents(1);
 }
 
 async function updateGalaxyPositions(scale) {
@@ -701,6 +855,37 @@ async function updateGalaxyPositions(scale) {
         label.setAttribute('x', x + labelOffset);
       }
       label.setAttribute('y', y + (4 / scale));
+    }
+  });
+
+  // Update Online Agent Markers
+  const agents = document.querySelectorAll('.online-agent-marker');
+  agents.forEach(agent => {
+    const planetName = agent.getAttribute('data-planet');
+    let planet = GALAXY_DB.find(p => p.id.toLowerCase() === planetName.toLowerCase() || p.name.toLowerCase() === planetName.toLowerCase());
+
+    if (planet) {
+      const currentR = planet.pos.r * expansion;
+      const rad = (planet.pos.a * Math.PI) / 180;
+
+      const pX = 300 + currentR * Math.cos(rad);
+      const pY = 300 + currentR * Math.sin(rad);
+
+      const iconWrap = agent.querySelector('.agent-icon-wrap');
+      const label = agent.querySelector('.agent-label');
+
+      if (iconWrap) {
+        const iconScale = Math.max(0.6, 1 / Math.sqrt(scale));
+        iconWrap.setAttribute('transform', `translate(${pX}, ${pY}) scale(${iconScale})`);
+      }
+
+      if (label) {
+        const labelScale = Math.max(0.3, 0.8 / Math.sqrt(scale));
+        const iconScale = Math.max(0.6, 1 / Math.sqrt(scale));
+        label.setAttribute('x', pX);
+        label.setAttribute('y', pY - (16 * iconScale + 4 / scale));
+        label.style.fontSize = `${labelScale * 14}px`;
+      }
     }
   });
 
@@ -799,6 +984,14 @@ async function openPlanetViewer(id) {
               </div>
            </div>
         </div>
+
+        <div class="detail-section" id="planet-viewer-agents-section" style="display:none; margin-top:15px; border-top:1px solid var(--border-dim); padding-top:10px;">
+           <h3 style="color:var(--green); font-size:11px; margin-bottom:8px;">&gt; AGENTES IDEAIS NO SETOR (ONLINE)</h3>
+           <div id="planet-viewer-agents-list" style="display:flex; flex-direction:column; gap:5px; max-height:100px; overflow-y:auto;">
+             <div class="loading-state" style="font-size:10px; color:var(--green-mid);">RASTREAMENTO EM ANDAMENTO...</div>
+           </div>
+        </div>
+
       </div>
     </div>
   `;
@@ -821,6 +1014,53 @@ async function openPlanetViewer(id) {
       }
     };
   }
+
+  // Fetch and display online agents on this planet
+  setTimeout(async () => {
+    const section = document.getElementById('planet-viewer-agents-section');
+    const list = document.getElementById('planet-viewer-agents-list');
+    if (!section || !list) return;
+
+    const db = Auth.db();
+    if (!db) { list.innerHTML = 'N/A'; return; }
+
+    try {
+      // 1. Get online users
+      const twoMinAgo = new Date(Date.now() - 120000).toISOString();
+      const { data: presence } = await db.from('presence').select('user_id').gt('last_seen', twoMinAgo);
+      if (!presence || presence.length === 0) {
+        list.innerHTML = '<div style="font-size:10px; color:var(--green-mid);">Nenhum agente detectado no momento.</div>';
+        section.style.display = 'block';
+        return;
+      }
+
+      // 2. Get profiles for those online users that are currently on this planet
+      const pIds = presence.map(p => p.user_id);
+      const { data: profiles } = await db.from('profiles')
+        .select('id, display_name, username, role')
+        .in('id', pIds)
+        .or(`current_planet.ilike.${planet.name},current_planet.ilike.${planet.id}`);
+
+      if (!profiles || profiles.length === 0) {
+        list.innerHTML = '<div style="font-size:10px; color:var(--green-mid);">Nenhum agente detectado no momento.</div>';
+      } else {
+        const html = profiles.map(p => {
+          const name = p.display_name || p.username || 'AGENTE';
+          const roleBadge = p.role ? `<span style="font-size:8px; opacity:0.8; border:1px solid var(--green-mid); padding:1px 4px; border-radius:2px;">${p.role.toUpperCase()}</span>` : '';
+          return `<div style="display:flex; align-items:center; gap:8px; padding:4px 0;">
+                    <span class="chat-online-dot pulse"></span>
+                    <span style="font-size:11px; color:var(--green-light); font-family:var(--font-code);">${name.toUpperCase()}</span>
+                    ${roleBadge}
+                  </div>`;
+        }).join('');
+        list.innerHTML = html;
+      }
+      section.style.display = 'block';
+    } catch (e) {
+      console.error("[MAP] Erro ao carregar agentes locais", e);
+      list.innerHTML = '<div style="color:var(--amber); font-size:10px;">Erro no escaneamento local.</div>';
+    }
+  }, 100);
 }
 
 // ── Route Logic ──────────────────────────────────────────────

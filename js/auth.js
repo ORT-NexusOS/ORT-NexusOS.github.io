@@ -152,7 +152,11 @@ const Auth = (() => {
 
             await _supabase.from('profiles').insert({
                 id: data.user.id, email, username, display_name, role,
-                allowed_modules: null
+                allowed_modules: null,
+                ritual_affinity: null,
+                ritual_level: 1,
+                equipped_rituals: [],
+                active_tarot: null
             });
             return { success: true };
         } catch (e) {

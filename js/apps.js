@@ -25,6 +25,7 @@ const Apps = (() => {
     hangarApp: { icon: '🛠️', title: 'GARAGEM O.R.T. (HANGAR)', path: 'O.R.T. > SEC > HANGAR' },
     travelApp: { icon: '🛰️', title: 'MINHA VIAGEM', path: 'O.R.T. > OPS > TRAVEL' },
     nexusBank: { icon: '🏦', title: 'NEXUS BANK', path: 'O.R.T. > FINANCE > BANK' },
+    rpgSheet: { icon: '🛡️', title: 'FICHA DO AGENTE', path: 'O.R.T. > AGENT > VITAL_RECORDS' },
   };
 
   let activeRoomId = '00000000-0000-0000-0000-000000000001';
@@ -49,7 +50,7 @@ const Apps = (() => {
   /* ── Render HTML ─────────────────────────────────────────── */
   function render(appId) {
     try {
-      const renders = { gallery, videos, missions, emails, chat, shop, map: mapRender, notepad, vault, calendar, terminal, combat, admin, stats: statsPage, inventory: inventoryPage, shipApp, hangarApp, travelApp, nexusBank };
+      const renders = { gallery, videos, missions, emails, chat, shop, map: mapRender, notepad, vault, calendar, terminal, combat, admin, stats: statsPage, inventory: inventoryPage, shipApp, hangarApp, travelApp, nexusBank, rpgSheet: window.rpgSheetHTML };
       return titlebar(appId) + `<div class="app-content" id="content-${appId}">` +
         (renders[appId] ? renders[appId]() : '<div class="empty-state">EM DESENVOLVIMENTO</div>') +
         '</div>';
@@ -66,7 +67,7 @@ const Apps = (() => {
       emails: initEmails, chat: initChat, shop: initShop, map: mapInit,
       notepad: initNotepad, vault: initVault,
       calendar: initCalendar, terminal: initTerminal, combat: initCombat, admin: initAdmin,
-      stats: initStats, inventory: initInventory, shipApp: initShipApp, hangarApp: initHangarApp, travelApp: initTravelApp, nexusBank: initNexusBank
+      stats: initStats, inventory: initInventory, shipApp: initShipApp, hangarApp: initHangarApp, travelApp: initTravelApp, nexusBank: initNexusBank, rpgSheet: window.initRpgSheet
     };
     if (inits[appId]) {
       setTimeout(() => {
@@ -3875,11 +3876,12 @@ const Apps = (() => {
         </div>
         <div id="admin-user-status" style="margin-top:10px;font-family:var(--font-code);font-size:13px;min-height:18px;"></div>
       </div>
-      <div style="display:flex; justify-content:space-between; margin-bottom:15px;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:15px; gap:10px;">
         <button class="btn" id="btn-admin-new-user">[ + NOVO AGENTE ]</button>
+        <button class="btn" id="btn-admin-unlock-all" style="background:var(--red-alert); color:black; border-color:var(--red); font-size:11px;">[ 🔓 DESTRANCAR LOADOUTS (GLOBAL) ]</button>
       </div>
-      <div style="border-bottom:1px solid var(--border);padding:6px 12px;display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;font-family:var(--font-code);font-size:11px;color:var(--green-mid);letter-spacing:1px;text-transform:uppercase;">
-        <span>AGENTE</span><span>EMAIL</span><span>CLEARANCE</span><span>AÇÃO</span>
+      <div style="border-bottom:1px solid var(--border);padding:8px 12px;display:grid;grid-template-columns:180px 1fr 90px 130px 220px;gap:15px;font-family:var(--font-code);font-size:11px;color:var(--green-mid);letter-spacing:1px;text-transform:uppercase;">
+        <span>AGENTE</span><span>EMAIL</span><span>STATUS</span><span>CLEARANCE</span><span>AÇÃO</span>
       </div>
       <div id="admin-user-list"><div class="loading-state">CARREGANDO AGENTES<span class="loading-dots"></span></div></div>`;
   }
@@ -4108,6 +4110,7 @@ const Apps = (() => {
       content.innerHTML = renderAdminAgents();
       loadAdminUsers();
       $('btn-admin-new-user')?.addEventListener('click', () => $('admin-new-user-form')?.classList.toggle('hidden'));
+      $('btn-admin-unlock-all')?.addEventListener('click', Apps.unlockAllLoadouts);
       $('btn-cancel-new-user')?.addEventListener('click', () => $('admin-new-user-form')?.classList.add('hidden'));
       $('btn-save-new-user')?.addEventListener('click', createNewUser);
     } else if (_adminTab === 'items') {
@@ -4193,19 +4196,24 @@ const Apps = (() => {
       const planet = u.current_planet || '—';
       const opts = planetOpts.map(p => `<option value="${p}" ${p === planet ? 'selected' : ''}>${p}</option>`).join('');
       const planetSel = planetSelHtml.replace('USERID', u.id).replace('OPTS', opts);
-      return `<div class="admin-user-row" style="grid-template-columns:1fr 1fr auto auto auto;">
-        <span>${u.display_name || u.username || 'N/A'}</span>
-        <span style="font-family:var(--font-code);font-size:11px;color:var(--green-mid);">${u.email || ''}</span>
-        <span class="role-badge ${u.role}">${(u.role || '?').toUpperCase()}</span>
-        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start;">
-          <div style="font-size:9px;color:var(--amber);letter-spacing:1px;">LOCALIZAÇÃO:</div>
-          ${planetSel}
-        </div>
-        <div style="display:flex;gap:6px;">
-          <select onchange="Apps.changeUserRole('${u.id}', this.value)" style="background:transparent;border:1px solid var(--border-dim);color:var(--green-mid);font-family:var(--font-code);font-size:11px;padding:3px;cursor:pointer;">
+
+      const statusText = u.is_loadout_locked ? 'PRONTO' : 'PENDENTE';
+      const statusColor = u.is_loadout_locked ? 'var(--green)' : 'var(--amber)';
+
+      return `<div class="admin-user-row" style="grid-template-columns:180px 1fr 90px 130px 220px; align-items:center; gap:15px;">
+        <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:bold;">${u.display_name || u.username || 'N/A'}</span>
+        <span style="font-family:var(--font-code);font-size:11px;color:var(--green-mid); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${u.email || ''}</span>
+        <span style="color:${statusColor}; font-weight:bold; font-size:10px; border:1px solid ${statusColor}; padding:2px 4px; border-radius:3px; text-align:center;">${statusText}</span>
+        <span class="role-badge ${u.role}" style="margin:0;">${(u.role || '?').toUpperCase()}</span>
+        <div style="display:flex;gap:6px; align-items:center;">
+          <div style="display:flex;flex-direction:column;gap:1px;">
+            <div style="font-size:7px;color:var(--amber);letter-spacing:1px;opacity:0.7;">LOCALIZAÇÃO:</div>
+            ${planetSel}
+          </div>
+          <select onchange="Apps.changeUserRole('${u.id}', this.value)" style="background:transparent;border:1px solid var(--border-dim);color:var(--green-mid);font-family:var(--font-code);font-size:10px;padding:2px;cursor:pointer; height:24px;">
             ${['admin', 'agent', 'restricted'].map(r => `<option value="${r}" ${u.role === r ? 'selected' : ''}>${r}</option>`).join('')}
           </select>
-          <button class="btn btn-danger" onclick="Apps.deleteUser('${u.id}')" style="font-size:11px;padding:3px 8px;">[ DEL ]</button>
+          <button class="btn btn-danger" onclick="Apps.deleteUser('${u.id}')" style="font-size:10px;padding:3px 6px;">[ DEL ]</button>
         </div>
       </div>`;
     }).join('');
@@ -4235,6 +4243,37 @@ const Apps = (() => {
       onConfirm: async () => {
         await Auth.adminDeleteUser(userId);
         loadAdminUsers();
+      }
+    });
+  }
+
+  async function unlockAllLoadouts() {
+    showModal({
+      title: 'MESTRE: DESTRANCAR TODOS OS LOADOUTS',
+      body: 'ESTA AÇÃO IRÁ RESETAR OS LOADOUTS E TAROTS DE TODOS OS AGENTES PARA A PRÓXIMA MISSÃO. A AFINIDADE RITUALÍSTICA E O NÍVEL SERÃO PRESERVADOS. CONTINUAR?',
+      type: 'confirm',
+      onConfirm: async () => {
+        const db = Auth.db();
+        if (!db) return;
+
+        // Reset global: limpa rituais e tarot, mantém afinidade e nível
+        const { error } = await db.from('profiles').update({
+          ritual_selection: [],
+          equipped_rituals: [null, null, null],
+          active_tarot: null,
+          ritual_refresh_count: 0,
+          ritual_lock_index: -1,
+          ritual_lock_used: false,
+          is_loadout_locked: false
+        }).not('id', 'is', null);
+
+        if (!error) {
+          showNotification('SISTEMA RESETADO', 'TODOS OS LOADOUTS FORAM DESTRANCADOS E SINCRONIZADOS PARA A PRÓXIMA MISSÃO.', 'success');
+          loadAdminUsers();
+        } else {
+          console.error("Erro no reset global:", error);
+          showNotification('ERRO NO RESET', error.message || 'Erro desconhecido', 'error');
+        }
       }
     });
   }
@@ -4594,22 +4633,62 @@ const Apps = (() => {
 
   /* ── Public API ─────────────────────────────────────────── */
   /* ── Notificações ───────────────────────────────────────── */
-  function showNotification(title, body, type = 'new-email') {
-    const container = $('notification-container');
-    if (!container) return;
+  function showNotification(arg1, arg2, arg3, arg4) {
+    let container = $('notification-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'notification-container';
+      container.className = 'notification-container';
+      document.body.appendChild(container);
+    }
+
+    // Garante que o container esteja sempre na raiz do body e no topo do stacking context
+    if (container.parentElement !== document.body) {
+      document.body.appendChild(container);
+    } else {
+      document.body.appendChild(container); // Move para o final sem remover
+    }
+
+    // Forçar Z-Index Máximo via JS também para garantir
+    container.style.zIndex = '999999999';
+    container.style.position = 'fixed';
+
+    let title, body, type, image;
+
+    // Detectar assinatura
+    if (arg3 === undefined && (arg2 === undefined || arg2.startsWith('var(') || ['success', 'info', 'warning', 'error', 'alert'].includes(arg2))) {
+      title = 'NOTIFICAÇÃO';
+      body = arg1;
+      type = arg2 || 'info';
+      image = null;
+    } else {
+      title = arg1 || 'SISTEMA';
+      body = arg2 || '';
+      type = arg3 || 'info';
+      image = arg4 || null; // Opcional
+    }
+
+    // Normalizar tipos para as variantes de cor CSS
+    const classType = type.startsWith('var(') ? '' : type;
+    const styleOverride = type.startsWith('var(') ? `style="border-color:${type}; box-shadow:0 0 10px ${type};"` : '';
 
     const toast = document.createElement('div');
-    // Suporte para tipos de raridade (common, uncommon, rare, legendary)
-    toast.className = `notification-toast ${type}`;
+    toast.className = `notification-toast ${classType}`;
+    if (styleOverride) toast.setAttribute('style', styleOverride.replace('style="', '').replace('"', ''));
+
+    const iconHtml = image ? `<div class="notification-icon"><img src="${image}" style="width:100%; height:100%; object-fit:cover; border-radius:2px; border:1px solid var(--border);"></div>` : '';
+
     toast.innerHTML = `
-            <div class="notification-header">> ${title || 'NOVO ALERTA SISTEMA'}</div>
-            <div class="notification-body">${body}</div>
+            ${iconHtml}
+            <div class="notification-content">
+              <div class="notification-header">> ${title.toUpperCase()}</div>
+              <div class="notification-body">${body}</div>
+            </div>
         `;
 
     toast.onclick = () => {
       toast.remove();
       if (type === 'new-email') Desktop.openApp('emails');
-      if (type === 'new-item' || ['common', 'uncommon', 'rare', 'legendary'].includes(type)) Desktop.openApp('shop');
     };
 
     container.appendChild(toast);
@@ -5014,6 +5093,9 @@ const Apps = (() => {
     presenceInterval = setInterval(pingPresence, 30000);
   }
 
+  // Expose it globally so Map or Desktop can initialize presence without opening chat
+  window.startPresenceHeartbeat = startPresenceHeartbeat;
+
   async function pingPresence() {
     const user = Auth.getUser();
     if (!user) return;
@@ -5059,6 +5141,8 @@ const Apps = (() => {
         loadOnlineUsers();
       })
       .subscribe();
+
+    startPresenceHeartbeat(); // Start pinging presence when subscribed
   }
 
   /* ── Criação de DM/Grupos ────────────────────────────────── */
@@ -5933,6 +6017,7 @@ const Apps = (() => {
             <div style="color:var(--green-mid);">RAÇA: <span id="stat-race" style="color:var(--green);">---</span></div>
             <div style="color:var(--green-mid);">FUNÇÃO: <span id="stat-class" style="color:var(--green);">---</span></div>
             <div style="color:var(--amber);">NÍVEL: <span id="stat-level" style="color:var(--amber);">---</span></div>
+            <div style="color:var(--green-mid); border-top:1px solid var(--border-dim); margin-top:8px; padding-top:8px;">AFINIDADE: <span id="stat-affinity" style="font-weight:bold; letter-spacing:1px;">---</span></div>
           </div>
         </div>
         <div style="padding:20px; overflow-y:auto; display:flex; flex-direction:column; gap:24px;">
@@ -6030,23 +6115,36 @@ const Apps = (() => {
 
     const v = id => { const el = $(id); if (el) el.textContent = profile[id.replace('stat-', '').replace('str', 'str').replace('dex', 'dex').replace('con', 'con').replace('int', 'int').replace('wis', 'wis').replace('spi', 'spi')]; };
 
-    // Atualizar Campos Simples
     if ($('stat-name')) $('stat-name').textContent = profile.display_name || profile.username;
     if ($('stat-race')) $('stat-race').textContent = profile.race || 'Humano';
-    if ($('stat-class')) $('stat-class').textContent = profile.function_class || 'Recruta';
+    if ($('stat-class')) $('stat-class').textContent = profile.role_class || 'Agente do Oculto';
     if ($('stat-level')) $('stat-level').textContent = profile.level || 1;
 
-    if ($('stat-str')) $('stat-str').textContent = profile.str || 0;
-    if ($('stat-dex')) $('stat-dex').textContent = profile.dex || 0;
-    if ($('stat-con')) $('stat-con').textContent = profile.con || 0;
-    if ($('stat-int')) $('stat-int').textContent = profile.int || 0;
-    if ($('stat-wis')) $('stat-wis').textContent = profile.wis || 0;
-    if ($('stat-spi')) $('stat-spi').textContent = profile.spi || 0;
+    const affEl = $('stat-affinity');
+    if (affEl) {
+      const aff = profile.ritual_affinity || 'NENHUMA';
+      affEl.textContent = aff.toUpperCase();
+      let affColor = 'var(--green-mid)';
+      if (aff === 'Sangue') affColor = '#ff2200';
+      if (aff === 'Conhecimento') affColor = '#ffb000';
+      if (aff === 'Energia') affColor = '#a000ff';
+      if (aff === 'Morte') affColor = '#333333';
+      affEl.style.color = affColor;
+    }
+
+    const attrs = profile.attributes || { FOR: 1, DES: 1, CON: 1, INT: 1, SAB: 1, ESP: 1 };
+
+    if ($('stat-str')) $('stat-str').textContent = attrs.FOR;
+    if ($('stat-dex')) $('stat-dex').textContent = attrs.DES;
+    if ($('stat-con')) $('stat-con').textContent = attrs.CON;
+    if ($('stat-int')) $('stat-int').textContent = attrs.INT;
+    if ($('stat-wis')) $('stat-wis').textContent = attrs.SAB;
+    if ($('stat-spi')) $('stat-spi').textContent = attrs.ESP;
     if ($('stat-rd')) $('stat-rd').textContent = profile.rd || 0;
     if ($('stat-exposure')) $('stat-exposure').textContent = (profile.mental_exposure || 0) + '%';
 
     // Cálculos Dinâmicos
-    const defBase = (profile.con || 0) + (profile.dex || 0) + 2;
+    const defBase = RPG.calcDefense(attrs.CON, attrs.DES);
     if ($('stat-def')) $('stat-def').textContent = defBase;
 
     // Barras Visuais
@@ -6068,18 +6166,21 @@ const Apps = (() => {
       if (text) text.textContent = `${current} / ${max}`;
     };
 
-    updateBar('hp-bar-fill', 'hp-text', profile.hp_current || 0, profile.hp_max || 1);
-    updateBar('sp-bar-fill', 'sp-text', profile.sp_current || 0, profile.sp_max || 1);
-    updateBar('san-bar-fill', null, profile.sanity_current || 0, profile.sanity_max || 1);
+    const maxHp = RPG.calcMaxHP(attrs.CON, profile.level || 1);
+    const maxSp = RPG.calcMaxSP(attrs.ESP, profile.level || 1);
+
+    updateBar('hp-bar-fill', 'hp-text', profile.hp_current || maxHp, maxHp);
+    updateBar('sp-bar-fill', 'sp-text', profile.sp_current || maxSp, maxSp);
+    updateBar('san-bar-fill', null, profile.sanity || 5, 5);
 
     // Efeito Visual do Cérebro (Sanidade & Exposição)
     const brainFill = $('sanity-brain-fill');
     const brainContour = $('brain-contour');
     const pulseAnim = $('brain-pulse-anim');
 
-    if (brainFill && profile.sanity_max) {
-      const sanity = parseInt(profile.sanity_current) || 0;
-      const sanityMax = parseInt(profile.sanity_max) || 5;
+    if (brainFill) {
+      const sanity = parseInt(profile.sanity) || 5;
+      const sanityMax = 5;
 
       // Normalização da altura (Sempre baseado na sanidade positiva para o líquido)
       const pct = Math.max(0, Math.min(100, (sanity / sanityMax) * 100));
@@ -7946,7 +8047,8 @@ const Apps = (() => {
     deactivateHangarShip, sellHangarShip,
     nexusBank, initNexusBank, switchBankTab, executeBankTransfer, loadBankTransferRecipients,
     loadBankVaults, createBankVault, handleVaultTransaction, deleteBankVault,
-    loadBankLoans, requestBankLoan, payBankLoan
+    loadBankLoans, requestBankLoan, payBankLoan,
+    unlockAllLoadouts
   };
 
 })();
